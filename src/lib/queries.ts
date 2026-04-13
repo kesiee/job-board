@@ -1,4 +1,4 @@
-import { db, ensureAnalyticsTables } from "./db";
+import { db, ensureAnalyticsTables, ensureFTSBackfill } from "./db";
 
 export interface Job {
   id: number;
@@ -25,13 +25,83 @@ export interface SearchParams {
 const PAGE_SIZE = 30;
 
 export async function searchJobs(params: SearchParams) {
+  await ensureFTSBackfill();
+
+  const page = Math.max(1, params.page || 1);
+  const offset = (page - 1) * PAGE_SIZE;
+  const useFTS = !!params.q;
+
+  if (useFTS) {
+    // FTS5 search with relevance ranking
+    // Escape FTS special characters and build query
+    const ftsQuery = params.q!
+      .replace(/['"(){}[\]*:^~!@#$%&\\]/g, " ")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((term) => `"${term}"*`)
+      .join(" ");
+
+    if (!ftsQuery) {
+      return { jobs: [], total: 0, page, totalPages: 0 };
+    }
+
+    const filterConditions: string[] = [];
+    const filterArgs: (string | number)[] = [];
+
+    if (params.source) {
+      filterConditions.push("j.source = ?");
+      filterArgs.push(params.source);
+    }
+    if (params.location) {
+      filterConditions.push("j.location LIKE ?");
+      filterArgs.push(`%${params.location}%`);
+    }
+    if (params.company) {
+      filterConditions.push("j.company LIKE ?");
+      filterArgs.push(`%${params.company}%`);
+    }
+
+    const extraWhere =
+      filterConditions.length > 0 ? `AND ${filterConditions.join(" AND ")}` : "";
+
+    // Sort: relevance (rank) by default for FTS, unless user picks company
+    const orderBy =
+      params.sort === "company"
+        ? "j.company ASC, j.scraped_at DESC"
+        : "fts.rank, j.scraped_at DESC";
+
+    const [countResult, jobsResult] = await Promise.all([
+      db.execute({
+        sql: `SELECT COUNT(*) as total FROM jobs_fts fts JOIN jobs j ON j.id = fts.rowid WHERE jobs_fts MATCH ? ${extraWhere}`,
+        args: [ftsQuery, ...filterArgs],
+      }),
+      db.execute({
+        sql: `SELECT j.id, j.title, j.company, j.url, j.location, j.source, j.date_posted, j.scraped_at
+              FROM jobs_fts fts
+              JOIN jobs j ON j.id = fts.rowid
+              WHERE jobs_fts MATCH ? ${extraWhere}
+              ORDER BY ${orderBy}
+              LIMIT ? OFFSET ?`,
+        args: [ftsQuery, ...filterArgs, PAGE_SIZE, offset],
+      }),
+    ]);
+
+    const total = Number(countResult.rows[0].total);
+    logSearch(params, total).catch(() => {});
+
+    return {
+      jobs: jobsResult.rows as unknown as Job[],
+      total,
+      page,
+      totalPages: Math.ceil(total / PAGE_SIZE),
+    };
+  }
+
+  // No text query — use regular SQL for filters only
   const conditions: string[] = [];
   const args: (string | number)[] = [];
 
-  if (params.q) {
-    conditions.push("(title LIKE ? OR company LIKE ?)");
-    args.push(`%${params.q}%`, `%${params.q}%`);
-  }
   if (params.source) {
     conditions.push("source = ?");
     args.push(params.source);
@@ -48,8 +118,6 @@ export async function searchJobs(params: SearchParams) {
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
   const orderBy =
     params.sort === "company" ? "company ASC, scraped_at DESC" : "scraped_at DESC";
-  const page = Math.max(1, params.page || 1);
-  const offset = (page - 1) * PAGE_SIZE;
 
   const [countResult, jobsResult] = await Promise.all([
     db.execute({ sql: `SELECT COUNT(*) as total FROM jobs ${where}`, args }),
@@ -61,7 +129,7 @@ export async function searchJobs(params: SearchParams) {
 
   const total = Number(countResult.rows[0].total);
 
-  if (params.q || params.source || params.location || params.company) {
+  if (params.source || params.location || params.company) {
     logSearch(params, total).catch(() => {});
   }
 

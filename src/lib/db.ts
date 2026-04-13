@@ -5,6 +5,60 @@ export const db = createClient({
   authToken: process.env.TURSO_AUTH_TOKEN!,
 });
 
+let ftsInitialized = false;
+
+export async function ensureFTS() {
+  if (ftsInitialized) return;
+  await db.batch([
+    // FTS5 virtual table indexing title, company, location, description
+    `CREATE VIRTUAL TABLE IF NOT EXISTS jobs_fts USING fts5(
+      title, company, location, description,
+      content='jobs', content_rowid='id',
+      tokenize='unicode61 remove_diacritics 2'
+    )`,
+
+    // Triggers to keep FTS in sync when scraper inserts/updates/deletes
+    `CREATE TRIGGER IF NOT EXISTS jobs_fts_insert AFTER INSERT ON jobs BEGIN
+      INSERT INTO jobs_fts(rowid, title, company, location, description)
+      VALUES (new.id, new.title, new.company, new.location, new.description);
+    END`,
+
+    `CREATE TRIGGER IF NOT EXISTS jobs_fts_delete AFTER DELETE ON jobs BEGIN
+      INSERT INTO jobs_fts(jobs_fts, rowid, title, company, location, description)
+      VALUES ('delete', old.id, old.title, old.company, old.location, old.description);
+    END`,
+
+    `CREATE TRIGGER IF NOT EXISTS jobs_fts_update AFTER UPDATE ON jobs BEGIN
+      INSERT INTO jobs_fts(jobs_fts, rowid, title, company, location, description)
+      VALUES ('delete', old.id, old.title, old.company, old.location, old.description);
+      INSERT INTO jobs_fts(rowid, title, company, location, description)
+      VALUES (new.id, new.title, new.company, new.location, new.description);
+    END`,
+  ]);
+  ftsInitialized = true;
+}
+
+// One-time: backfill FTS index from existing jobs
+let backfillChecked = false;
+
+export async function ensureFTSBackfill() {
+  if (backfillChecked) return;
+  await ensureFTS();
+  // Check if FTS is empty but jobs exist
+  const [ftsCount, jobsCount] = await Promise.all([
+    db.execute("SELECT COUNT(*) as c FROM jobs_fts"),
+    db.execute("SELECT COUNT(*) as c FROM jobs"),
+  ]);
+  const fts = Number(ftsCount.rows[0].c);
+  const jobs = Number(jobsCount.rows[0].c);
+  if (jobs > 0 && fts === 0) {
+    await db.execute(
+      "INSERT INTO jobs_fts(rowid, title, company, location, description) SELECT id, title, company, location, description FROM jobs"
+    );
+  }
+  backfillChecked = true;
+}
+
 let analyticsInitialized = false;
 
 export async function ensureAnalyticsTables() {
