@@ -1,4 +1,5 @@
 import { db, ensureAnalyticsTables, ensureFTSBackfill } from "./db";
+import { cached } from "./cache";
 
 export interface Job {
   id: number;
@@ -149,31 +150,35 @@ export async function getJob(id: number) {
   return (result.rows[0] as unknown as Job) || null;
 }
 
-export async function getStats() {
-  const [totalJobs, platformStats, todayJobs, totalCompanies] = await Promise.all([
-    db.execute("SELECT COUNT(*) as count FROM jobs"),
-    db.execute(
-      "SELECT source, COUNT(*) as count FROM jobs GROUP BY source ORDER BY count DESC"
-    ),
-    db.execute(
-      "SELECT COUNT(*) as count FROM jobs WHERE date(scraped_at) = date('now')"
-    ),
-    db.execute("SELECT COUNT(DISTINCT company) as count FROM jobs"),
-  ]);
+export function getStats() {
+  return cached("stats", 300, async () => {
+    const [totalJobs, platformStats, todayJobs, totalCompanies] = await Promise.all([
+      db.execute("SELECT COUNT(*) as count FROM jobs"),
+      db.execute(
+        "SELECT source, COUNT(*) as count FROM jobs GROUP BY source ORDER BY count DESC"
+      ),
+      db.execute(
+        "SELECT COUNT(*) as count FROM jobs WHERE date(scraped_at) = date('now')"
+      ),
+      db.execute("SELECT COUNT(DISTINCT company) as count FROM jobs"),
+    ]);
 
-  return {
-    totalJobs: Number(totalJobs.rows[0].count),
-    platforms: platformStats.rows as unknown as { source: string; count: number }[],
-    todayJobs: Number(todayJobs.rows[0].count),
-    totalCompanies: Number(totalCompanies.rows[0].count),
-  };
+    return {
+      totalJobs: Number(totalJobs.rows[0].count),
+      platforms: platformStats.rows as unknown as { source: string; count: number }[],
+      todayJobs: Number(todayJobs.rows[0].count),
+      totalCompanies: Number(totalCompanies.rows[0].count),
+    };
+  });
 }
 
-export async function getSources() {
-  const result = await db.execute(
-    "SELECT DISTINCT source FROM jobs WHERE source IS NOT NULL ORDER BY source"
-  );
-  return result.rows.map((r) => r.source as string);
+export function getSources() {
+  return cached("sources", 600, async () => {
+    const result = await db.execute(
+      "SELECT DISTINCT source FROM jobs WHERE source IS NOT NULL ORDER BY source"
+    );
+    return result.rows.map((r) => r.source as string);
+  });
 }
 
 export async function getCompanies(letter?: string) {
@@ -203,16 +208,11 @@ export async function logPageView(data: PageViewData) {
   try {
     await ensureAnalyticsTables();
 
-    // Check if this visitor has been seen before
-    const existing = await db.execute({
-      sql: "SELECT id FROM page_views WHERE visitor_id = ? LIMIT 1",
-      args: [data.visitorId],
-    });
-    const isUnique = existing.rows.length === 0 ? 1 : 0;
-
+    // Single INSERT — compute is_unique via subquery instead of separate SELECT
     await db.execute({
       sql: `INSERT INTO page_views (visitor_id, path, referrer, user_agent, ip_hash, country, city, device, is_unique)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?,
+              (SELECT CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END FROM page_views WHERE visitor_id = ?))`,
       args: [
         data.visitorId,
         data.path,
@@ -222,7 +222,7 @@ export async function logPageView(data: PageViewData) {
         data.country,
         data.city,
         data.device,
-        isUnique,
+        data.visitorId,
       ],
     });
   } catch {
