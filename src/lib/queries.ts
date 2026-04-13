@@ -61,7 +61,6 @@ export async function searchJobs(params: SearchParams) {
 
   const total = Number(countResult.rows[0].total);
 
-  // Log search if there were filters
   if (params.q || params.source || params.location || params.company) {
     logSearch(params, total).catch(() => {});
   }
@@ -110,9 +109,7 @@ export async function getSources() {
 }
 
 export async function getCompanies(letter?: string) {
-  const where = letter
-    ? "WHERE UPPER(SUBSTR(company, 1, 1)) = ?"
-    : "";
+  const where = letter ? "WHERE UPPER(SUBSTR(company, 1, 1)) = ?" : "";
   const args = letter ? [letter.toUpperCase()] : [];
 
   const result = await db.execute({
@@ -123,24 +120,55 @@ export async function getCompanies(letter?: string) {
   return result.rows as unknown as { company: string; job_count: number }[];
 }
 
-export async function logPageView(path: string, referrer?: string, userAgent?: string) {
+interface PageViewData {
+  visitorId: string;
+  path: string;
+  referrer: string | null;
+  userAgent: string;
+  ipHash: string;
+  country: string | null;
+  city: string | null;
+  device: string;
+}
+
+export async function logPageView(data: PageViewData) {
   try {
     await ensureAnalyticsTables();
+
+    // Check if this visitor has been seen before
+    const existing = await db.execute({
+      sql: "SELECT id FROM page_views WHERE visitor_id = ? LIMIT 1",
+      args: [data.visitorId],
+    });
+    const isUnique = existing.rows.length === 0 ? 1 : 0;
+
     await db.execute({
-      sql: "INSERT INTO page_views (path, referrer, user_agent) VALUES (?, ?, ?)",
-      args: [path, referrer || null, userAgent || null],
+      sql: `INSERT INTO page_views (visitor_id, path, referrer, user_agent, ip_hash, country, city, device, is_unique)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        data.visitorId,
+        data.path,
+        data.referrer,
+        data.userAgent,
+        data.ipHash,
+        data.country,
+        data.city,
+        data.device,
+        isUnique,
+      ],
     });
   } catch {
-    // silently fail - analytics should never break the app
+    // silently fail
   }
 }
 
-async function logSearch(params: SearchParams, resultsCount: number) {
+export async function logSearch(params: SearchParams, resultsCount: number, visitorId?: string) {
   try {
     await ensureAnalyticsTables();
     await db.execute({
-      sql: "INSERT INTO search_logs (query, source_filter, location_filter, company_filter, results_count) VALUES (?, ?, ?, ?, ?)",
+      sql: "INSERT INTO search_logs (visitor_id, query, source_filter, location_filter, company_filter, results_count) VALUES (?, ?, ?, ?, ?, ?)",
       args: [
+        visitorId || "anonymous",
         params.q || null,
         params.source || null,
         params.location || null,
@@ -156,58 +184,138 @@ async function logSearch(params: SearchParams, resultsCount: number) {
 export async function getAnalytics(days: number = 30) {
   await ensureAnalyticsTables();
 
+  const range = `-${days} days`;
+
   const [
     totalViews,
+    uniqueVisitors,
+    returningVisitors,
     viewsByDay,
+    uniquesByDay,
     topPages,
     topSearches,
     searchesByDay,
     topSourceFilters,
     topLocationFilters,
+    topCompanyFilters,
     recentSearches,
+    deviceBreakdown,
+    countryBreakdown,
+    cityBreakdown,
+    referrerBreakdown,
+    hourlyBreakdown,
+    avgPagesPerVisitor,
   ] = await Promise.all([
+    // Total page views
     db.execute({
       sql: `SELECT COUNT(*) as count FROM page_views WHERE created_at >= datetime('now', ?)`,
-      args: [`-${days} days`],
+      args: [range],
     }),
+    // Unique visitors
+    db.execute({
+      sql: `SELECT COUNT(DISTINCT visitor_id) as count FROM page_views WHERE created_at >= datetime('now', ?)`,
+      args: [range],
+    }),
+    // Returning visitors (seen more than once)
+    db.execute({
+      sql: `SELECT COUNT(*) as count FROM (
+        SELECT visitor_id FROM page_views WHERE created_at >= datetime('now', ?)
+        GROUP BY visitor_id HAVING COUNT(*) > 1
+      )`,
+      args: [range],
+    }),
+    // Views by day
     db.execute({
       sql: `SELECT date(created_at) as day, COUNT(*) as count FROM page_views WHERE created_at >= datetime('now', ?) GROUP BY day ORDER BY day DESC`,
-      args: [`-${days} days`],
+      args: [range],
     }),
+    // Unique visitors by day
     db.execute({
-      sql: `SELECT path, COUNT(*) as count FROM page_views WHERE created_at >= datetime('now', ?) GROUP BY path ORDER BY count DESC LIMIT 20`,
-      args: [`-${days} days`],
+      sql: `SELECT date(created_at) as day, COUNT(DISTINCT visitor_id) as count FROM page_views WHERE created_at >= datetime('now', ?) GROUP BY day ORDER BY day DESC`,
+      args: [range],
     }),
+    // Top pages
     db.execute({
-      sql: `SELECT query, COUNT(*) as count FROM search_logs WHERE query IS NOT NULL AND created_at >= datetime('now', ?) GROUP BY query ORDER BY count DESC LIMIT 30`,
-      args: [`-${days} days`],
+      sql: `SELECT path, COUNT(*) as views, COUNT(DISTINCT visitor_id) as unique_visitors FROM page_views WHERE created_at >= datetime('now', ?) GROUP BY path ORDER BY views DESC LIMIT 20`,
+      args: [range],
     }),
+    // Top searches
+    db.execute({
+      sql: `SELECT query, COUNT(*) as count, COUNT(DISTINCT visitor_id) as unique_searchers FROM search_logs WHERE query IS NOT NULL AND created_at >= datetime('now', ?) GROUP BY query ORDER BY count DESC LIMIT 30`,
+      args: [range],
+    }),
+    // Searches by day
     db.execute({
       sql: `SELECT date(created_at) as day, COUNT(*) as count FROM search_logs WHERE created_at >= datetime('now', ?) GROUP BY day ORDER BY day DESC`,
-      args: [`-${days} days`],
+      args: [range],
     }),
+    // Top platform filters
     db.execute({
       sql: `SELECT source_filter, COUNT(*) as count FROM search_logs WHERE source_filter IS NOT NULL AND created_at >= datetime('now', ?) GROUP BY source_filter ORDER BY count DESC LIMIT 10`,
-      args: [`-${days} days`],
+      args: [range],
     }),
+    // Top location filters
     db.execute({
-      sql: `SELECT location_filter, COUNT(*) as count FROM search_logs WHERE location_filter IS NOT NULL AND created_at >= datetime('now', ?) GROUP BY location_filter ORDER BY count DESC LIMIT 10`,
-      args: [`-${days} days`],
+      sql: `SELECT location_filter, COUNT(*) as count FROM search_logs WHERE location_filter IS NOT NULL AND created_at >= datetime('now', ?) GROUP BY location_filter ORDER BY count DESC LIMIT 15`,
+      args: [range],
     }),
+    // Top company filters
+    db.execute({
+      sql: `SELECT company_filter, COUNT(*) as count FROM search_logs WHERE company_filter IS NOT NULL AND created_at >= datetime('now', ?) GROUP BY company_filter ORDER BY count DESC LIMIT 15`,
+      args: [range],
+    }),
+    // Recent searches
     db.execute({
       sql: `SELECT query, source_filter, location_filter, company_filter, results_count, created_at FROM search_logs ORDER BY created_at DESC LIMIT 50`,
       args: [],
+    }),
+    // Device breakdown
+    db.execute({
+      sql: `SELECT device, COUNT(*) as count, COUNT(DISTINCT visitor_id) as unique_count FROM page_views WHERE created_at >= datetime('now', ?) GROUP BY device ORDER BY count DESC`,
+      args: [range],
+    }),
+    // Country breakdown
+    db.execute({
+      sql: `SELECT country, COUNT(*) as count, COUNT(DISTINCT visitor_id) as unique_count FROM page_views WHERE country IS NOT NULL AND created_at >= datetime('now', ?) GROUP BY country ORDER BY count DESC LIMIT 20`,
+      args: [range],
+    }),
+    // City breakdown
+    db.execute({
+      sql: `SELECT city, country, COUNT(*) as count, COUNT(DISTINCT visitor_id) as unique_count FROM page_views WHERE city IS NOT NULL AND created_at >= datetime('now', ?) GROUP BY city, country ORDER BY count DESC LIMIT 20`,
+      args: [range],
+    }),
+    // Referrer breakdown
+    db.execute({
+      sql: `SELECT referrer, COUNT(*) as count FROM page_views WHERE referrer IS NOT NULL AND referrer != '' AND created_at >= datetime('now', ?) GROUP BY referrer ORDER BY count DESC LIMIT 15`,
+      args: [range],
+    }),
+    // Hourly breakdown (peak hours)
+    db.execute({
+      sql: `SELECT strftime('%H', created_at) as hour, COUNT(*) as count FROM page_views WHERE created_at >= datetime('now', ?) GROUP BY hour ORDER BY hour`,
+      args: [range],
+    }),
+    // Avg pages per visitor
+    db.execute({
+      sql: `SELECT ROUND(AVG(page_count), 1) as avg_pages FROM (
+        SELECT visitor_id, COUNT(*) as page_count FROM page_views WHERE created_at >= datetime('now', ?) GROUP BY visitor_id
+      )`,
+      args: [range],
     }),
   ]);
 
   return {
     totalViews: Number(totalViews.rows[0].count),
+    uniqueVisitors: Number(uniqueVisitors.rows[0].count),
+    returningVisitors: Number(returningVisitors.rows[0].count),
+    avgPagesPerVisitor: Number(avgPagesPerVisitor.rows[0]?.avg_pages || 0),
     viewsByDay: viewsByDay.rows as unknown as { day: string; count: number }[],
-    topPages: topPages.rows as unknown as { path: string; count: number }[],
-    topSearches: topSearches.rows as unknown as { query: string; count: number }[],
+    uniquesByDay: uniquesByDay.rows as unknown as { day: string; count: number }[],
+    topPages: topPages.rows as unknown as { path: string; views: number; unique_visitors: number }[],
+    topSearches: topSearches.rows as unknown as { query: string; count: number; unique_searchers: number }[],
     searchesByDay: searchesByDay.rows as unknown as { day: string; count: number }[],
     topSourceFilters: topSourceFilters.rows as unknown as { source_filter: string; count: number }[],
     topLocationFilters: topLocationFilters.rows as unknown as { location_filter: string; count: number }[],
+    topCompanyFilters: topCompanyFilters.rows as unknown as { company_filter: string; count: number }[],
     recentSearches: recentSearches.rows as unknown as {
       query: string | null;
       source_filter: string | null;
@@ -216,5 +324,18 @@ export async function getAnalytics(days: number = 30) {
       results_count: number;
       created_at: string;
     }[],
+    devices: deviceBreakdown.rows as unknown as { device: string; count: number; unique_count: number }[],
+    countries: countryBreakdown.rows as unknown as { country: string; count: number; unique_count: number }[],
+    cities: cityBreakdown.rows as unknown as { city: string; country: string; count: number; unique_count: number }[],
+    referrers: referrerBreakdown.rows as unknown as { referrer: string; count: number }[],
+    hourly: hourlyBreakdown.rows as unknown as { hour: string; count: number }[],
   };
+}
+
+export async function clearAnalytics() {
+  await ensureAnalyticsTables();
+  await db.batch([
+    "DELETE FROM page_views",
+    "DELETE FROM search_logs",
+  ]);
 }
