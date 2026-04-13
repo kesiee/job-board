@@ -22,6 +22,9 @@ export function platformColor(source: string | null): string {
     ashby: "bg-yellow-100 text-yellow-800",
     workday: "bg-red-100 text-red-800",
     bigtech: "bg-indigo-100 text-indigo-800",
+    tiktok: "bg-slate-100 text-slate-800",
+    microsoft: "bg-sky-100 text-sky-800",
+    nvidia: "bg-lime-100 text-lime-800",
   };
   return colors[source || ""] || "bg-gray-100 text-gray-800";
 }

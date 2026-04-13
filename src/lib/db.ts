@@ -10,29 +10,29 @@ let ftsInitialized = false;
 export async function ensureFTS() {
   if (ftsInitialized) return;
   await db.batch([
-    // FTS5 virtual table indexing title, company, location, description
+    // FTS5 virtual table indexing title, company, location
     `CREATE VIRTUAL TABLE IF NOT EXISTS jobs_fts USING fts5(
-      title, company, location, description,
+      title, company, location,
       content='jobs', content_rowid='id',
       tokenize='unicode61 remove_diacritics 2'
     )`,
 
     // Triggers to keep FTS in sync when scraper inserts/updates/deletes
     `CREATE TRIGGER IF NOT EXISTS jobs_fts_insert AFTER INSERT ON jobs BEGIN
-      INSERT INTO jobs_fts(rowid, title, company, location, description)
-      VALUES (new.id, new.title, new.company, new.location, new.description);
+      INSERT INTO jobs_fts(rowid, title, company, location)
+      VALUES (new.id, new.title, new.company, new.location);
     END`,
 
     `CREATE TRIGGER IF NOT EXISTS jobs_fts_delete AFTER DELETE ON jobs BEGIN
-      INSERT INTO jobs_fts(jobs_fts, rowid, title, company, location, description)
-      VALUES ('delete', old.id, old.title, old.company, old.location, old.description);
+      INSERT INTO jobs_fts(jobs_fts, rowid, title, company, location)
+      VALUES ('delete', old.id, old.title, old.company, old.location);
     END`,
 
     `CREATE TRIGGER IF NOT EXISTS jobs_fts_update AFTER UPDATE ON jobs BEGIN
-      INSERT INTO jobs_fts(jobs_fts, rowid, title, company, location, description)
-      VALUES ('delete', old.id, old.title, old.company, old.location, old.description);
-      INSERT INTO jobs_fts(rowid, title, company, location, description)
-      VALUES (new.id, new.title, new.company, new.location, new.description);
+      INSERT INTO jobs_fts(jobs_fts, rowid, title, company, location)
+      VALUES ('delete', old.id, old.title, old.company, old.location);
+      INSERT INTO jobs_fts(rowid, title, company, location)
+      VALUES (new.id, new.title, new.company, new.location);
     END`,
   ]);
   ftsInitialized = true;
@@ -53,7 +53,7 @@ export async function ensureFTSBackfill() {
   const jobs = Number(jobsCount.rows[0].c);
   if (jobs > 0 && fts === 0) {
     await db.execute(
-      "INSERT INTO jobs_fts(rowid, title, company, location, description) SELECT id, title, company, location, description FROM jobs"
+      "INSERT INTO jobs_fts(rowid, title, company, location) SELECT id, title, company, location FROM jobs"
     );
   }
   backfillChecked = true;

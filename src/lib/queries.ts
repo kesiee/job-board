@@ -6,10 +6,8 @@ export interface Job {
   title: string;
   company: string;
   url: string;
-  description: string | null;
   location: string | null;
   source: string | null;
-  ats_slug: string | null;
   date_posted: string | null;
   scraped_at: string | null;
 }

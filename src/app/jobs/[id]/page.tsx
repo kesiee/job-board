@@ -79,26 +79,18 @@ export default async function JobPage({
           </span>
         </div>
 
-        {job.description && (
-          <div className="mt-6 border-t border-gray-100 pt-6">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500">
-              Description
-            </h2>
-            <div className="prose prose-sm max-w-none text-gray-700 whitespace-pre-wrap">
-              {job.description}
-            </div>
-          </div>
-        )}
-
         <div className="mt-6 border-t border-gray-100 pt-6">
           <a
             href={job.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-sm text-blue-600 hover:underline"
+            className="inline-flex items-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
           >
-            View original listing &rarr;
+            View full listing &amp; apply &rarr;
           </a>
+          <p className="mt-2 text-xs text-gray-400">
+            Opens the original job posting on {job.source || "the company's"} careers page
+          </p>
         </div>
       </div>
     </div>
