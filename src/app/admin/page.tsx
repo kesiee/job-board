@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getAnalytics, clearAnalytics } from "@/lib/queries";
+import { getAnalytics } from "@/lib/queries";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -19,12 +19,6 @@ export default async function AdminPage({
 
   if (secret !== process.env.ADMIN_SECRET) {
     redirect("/");
-  }
-
-  // Handle clear action
-  if (params.action === "clear") {
-    await clearAnalytics();
-    redirect(`/admin?secret=${secret}`);
   }
 
   const days = typeof params.days === "string" ? parseInt(params.days) : 30;
@@ -57,12 +51,6 @@ export default async function AdminPage({
               </a>
             ))}
           </div>
-          <a
-            href={`/admin?secret=${secret}&action=clear`}
-            className="rounded-md border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50"
-          >
-            Clear All
-          </a>
         </div>
       </div>
 
