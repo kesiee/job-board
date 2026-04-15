@@ -1,4 +1,4 @@
-import { db, ensureAnalyticsTables, ensureFTSBackfill } from "./db";
+import { pool, ensureAnalyticsTables, ensureFTS } from "./db";
 import { cached } from "./cache";
 
 export interface Job {
@@ -6,8 +6,10 @@ export interface Job {
   title: string;
   company: string;
   url: string;
+  description: string | null;
   location: string | null;
   source: string | null;
+  ats_slug: string | null;
   date_posted: string | null;
   scraped_at: string | null;
 }
@@ -24,171 +26,174 @@ export interface SearchParams {
 const PAGE_SIZE = 30;
 
 export async function searchJobs(params: SearchParams) {
-  await ensureFTSBackfill();
-
   const page = Math.max(1, params.page || 1);
   const offset = (page - 1) * PAGE_SIZE;
-  const useFTS = !!params.q;
 
-  if (useFTS) {
-    // FTS5 search with relevance ranking
-    // Escape FTS special characters and build query
-    const ftsQuery = params.q!
-      .replace(/['"(){}[\]*:^~!@#$%&\\]/g, " ")
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean)
-      .map((term) => `"${term}"*`)
-      .join(" ");
+  const cacheKey = `search:${JSON.stringify(params)}`;
+  return cached(cacheKey, 60, async () => {
+    await ensureFTS();
 
-    if (!ftsQuery) {
-      return { jobs: [], total: 0, page, totalPages: 0 };
+    if (params.q) {
+      // Postgres full-text search
+      const tsQuery = params.q
+        .replace(/['"(){}[\]*:^~!@#$%&\\]/g, " ")
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean)
+        .join(" & ");
+
+      if (!tsQuery) {
+        return { jobs: [] as Job[], total: 0, page, totalPages: 0 };
+      }
+
+      const conditions: string[] = [
+        `to_tsvector('english', title || ' ' || company || ' ' || COALESCE(location, '')) @@ to_tsquery('english', $1)`
+      ];
+      const args: (string | number)[] = [tsQuery + ":*"];
+      let paramIdx = 2;
+
+      if (params.source) {
+        conditions.push(`source = $${paramIdx++}`);
+        args.push(params.source);
+      }
+      if (params.location) {
+        conditions.push(`location ILIKE $${paramIdx++}`);
+        args.push(`%${params.location}%`);
+      }
+      if (params.company) {
+        conditions.push(`company ILIKE $${paramIdx++}`);
+        args.push(`%${params.company}%`);
+      }
+
+      const where = `WHERE ${conditions.join(" AND ")}`;
+      const orderBy =
+        params.sort === "company"
+          ? "company ASC, scraped_at DESC"
+          : `ts_rank(to_tsvector('english', title || ' ' || company || ' ' || COALESCE(location, '')), to_tsquery('english', $1)) DESC, scraped_at DESC`;
+
+      const [countResult, jobsResult] = await Promise.all([
+        pool.query(`SELECT COUNT(*) as total FROM jobs ${where}`, args),
+        pool.query(
+          `SELECT id, title, company, url, location, source, date_posted, scraped_at
+           FROM jobs ${where}
+           ORDER BY ${orderBy}
+           LIMIT $${paramIdx++} OFFSET $${paramIdx}`,
+          [...args, PAGE_SIZE, offset]
+        ),
+      ]);
+
+      const total = Number(countResult.rows[0].total);
+      logSearch(params, total);
+
+      return {
+        jobs: jobsResult.rows as Job[],
+        total,
+        page,
+        totalPages: Math.ceil(total / PAGE_SIZE),
+      };
     }
 
-    const filterConditions: string[] = [];
-    const filterArgs: (string | number)[] = [];
+    // No text query — regular SQL with filters
+    const conditions: string[] = [];
+    const args: (string | number)[] = [];
+    let paramIdx = 1;
 
     if (params.source) {
-      filterConditions.push("j.source = ?");
-      filterArgs.push(params.source);
+      conditions.push(`source = $${paramIdx++}`);
+      args.push(params.source);
     }
     if (params.location) {
-      filterConditions.push("j.location LIKE ?");
-      filterArgs.push(`%${params.location}%`);
+      conditions.push(`location ILIKE $${paramIdx++}`);
+      args.push(`%${params.location}%`);
     }
     if (params.company) {
-      filterConditions.push("j.company LIKE ?");
-      filterArgs.push(`%${params.company}%`);
+      conditions.push(`company ILIKE $${paramIdx++}`);
+      args.push(`%${params.company}%`);
     }
 
-    const extraWhere =
-      filterConditions.length > 0 ? `AND ${filterConditions.join(" AND ")}` : "";
-
-    // Sort: relevance (rank) by default for FTS, unless user picks company
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
     const orderBy =
-      params.sort === "company"
-        ? "j.company ASC, j.scraped_at DESC"
-        : "fts.rank, j.scraped_at DESC";
+      params.sort === "company" ? "company ASC, scraped_at DESC" : "scraped_at DESC";
 
     const [countResult, jobsResult] = await Promise.all([
-      db.execute({
-        sql: `SELECT COUNT(*) as total FROM jobs_fts fts JOIN jobs j ON j.id = fts.rowid WHERE jobs_fts MATCH ? ${extraWhere}`,
-        args: [ftsQuery, ...filterArgs],
-      }),
-      db.execute({
-        sql: `SELECT j.id, j.title, j.company, j.url, j.location, j.source, j.date_posted, j.scraped_at
-              FROM jobs_fts fts
-              JOIN jobs j ON j.id = fts.rowid
-              WHERE jobs_fts MATCH ? ${extraWhere}
-              ORDER BY ${orderBy}
-              LIMIT ? OFFSET ?`,
-        args: [ftsQuery, ...filterArgs, PAGE_SIZE, offset],
-      }),
+      pool.query(`SELECT COUNT(*) as total FROM jobs ${where}`, args),
+      pool.query(
+        `SELECT id, title, company, url, location, source, date_posted, scraped_at
+         FROM jobs ${where}
+         ORDER BY ${orderBy}
+         LIMIT $${paramIdx++} OFFSET $${paramIdx}`,
+        [...args, PAGE_SIZE, offset]
+      ),
     ]);
 
     const total = Number(countResult.rows[0].total);
-    logSearch(params, total).catch(() => {});
+
+    if (params.source || params.location || params.company) {
+      logSearch(params, total);
+    }
 
     return {
-      jobs: jobsResult.rows as unknown as Job[],
+      jobs: jobsResult.rows as Job[],
       total,
       page,
       totalPages: Math.ceil(total / PAGE_SIZE),
     };
-  }
-
-  // No text query — use regular SQL for filters only
-  const conditions: string[] = [];
-  const args: (string | number)[] = [];
-
-  if (params.source) {
-    conditions.push("source = ?");
-    args.push(params.source);
-  }
-  if (params.location) {
-    conditions.push("location LIKE ?");
-    args.push(`%${params.location}%`);
-  }
-  if (params.company) {
-    conditions.push("company LIKE ?");
-    args.push(`%${params.company}%`);
-  }
-
-  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-  const orderBy =
-    params.sort === "company" ? "company ASC, scraped_at DESC" : "scraped_at DESC";
-
-  const [countResult, jobsResult] = await Promise.all([
-    db.execute({ sql: `SELECT COUNT(*) as total FROM jobs ${where}`, args }),
-    db.execute({
-      sql: `SELECT id, title, company, url, location, source, date_posted, scraped_at FROM jobs ${where} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
-      args: [...args, PAGE_SIZE, offset],
-    }),
-  ]);
-
-  const total = Number(countResult.rows[0].total);
-
-  if (params.source || params.location || params.company) {
-    logSearch(params, total).catch(() => {});
-  }
-
-  return {
-    jobs: jobsResult.rows as unknown as Job[],
-    total,
-    page,
-    totalPages: Math.ceil(total / PAGE_SIZE),
-  };
+  });
 }
 
 export async function getJob(id: number) {
-  const result = await db.execute({
-    sql: "SELECT * FROM jobs WHERE id = ?",
-    args: [id],
-  });
-  return (result.rows[0] as unknown as Job) || null;
+  const result = await pool.query("SELECT * FROM jobs WHERE id = $1", [id]);
+  return (result.rows[0] as Job) || null;
 }
 
 export function getStats() {
   return cached("stats", 300, async () => {
-    const [totalJobs, platformStats, todayJobs, totalCompanies] = await Promise.all([
-      db.execute("SELECT COUNT(*) as count FROM jobs"),
-      db.execute(
-        "SELECT source, COUNT(*) as count FROM jobs GROUP BY source ORDER BY count DESC"
-      ),
-      db.execute(
-        "SELECT COUNT(*) as count FROM jobs WHERE date(scraped_at) = date('now')"
-      ),
-      db.execute("SELECT COUNT(DISTINCT company) as count FROM jobs"),
-    ]);
+    const result = await pool.query(`
+      SELECT
+        (SELECT COUNT(*) FROM jobs) as total_jobs,
+        (SELECT COUNT(DISTINCT company) FROM jobs) as total_companies,
+        (SELECT COUNT(*) FROM jobs WHERE scraped_at::date = CURRENT_DATE) as today_jobs
+    `);
+    const platformResult = await pool.query(
+      "SELECT source, COUNT(*) as count FROM jobs GROUP BY source ORDER BY count DESC"
+    );
 
     return {
-      totalJobs: Number(totalJobs.rows[0].count),
-      platforms: platformStats.rows as unknown as { source: string; count: number }[],
-      todayJobs: Number(todayJobs.rows[0].count),
-      totalCompanies: Number(totalCompanies.rows[0].count),
+      totalJobs: Number(result.rows[0].total_jobs),
+      totalCompanies: Number(result.rows[0].total_companies),
+      todayJobs: Number(result.rows[0].today_jobs),
+      platforms: platformResult.rows as { source: string; count: number }[],
     };
   });
 }
 
 export function getSources() {
   return cached("sources", 600, async () => {
-    const result = await db.execute(
+    const result = await pool.query(
       "SELECT DISTINCT source FROM jobs WHERE source IS NOT NULL ORDER BY source"
     );
     return result.rows.map((r) => r.source as string);
   });
 }
 
-export async function getCompanies(letter?: string) {
-  const where = letter ? "WHERE UPPER(SUBSTR(company, 1, 1)) = ?" : "";
-  const args = letter ? [letter.toUpperCase()] : [];
-
-  const result = await db.execute({
-    sql: `SELECT company, COUNT(*) as job_count FROM jobs ${where} GROUP BY company ORDER BY company ASC LIMIT 500`,
-    args,
+export function getCompanies(letter?: string) {
+  const cacheKey = `companies:${letter || "all"}`;
+  return cached(cacheKey, 600, async () => {
+    if (letter) {
+      const result = await pool.query(
+        `SELECT company, COUNT(*) as job_count FROM jobs
+         WHERE UPPER(LEFT(company, 1)) = $1
+         GROUP BY company ORDER BY company ASC LIMIT 500`,
+        [letter.toUpperCase()]
+      );
+      return result.rows as { company: string; job_count: number }[];
+    }
+    const result = await pool.query(
+      `SELECT company, COUNT(*) as job_count FROM jobs
+       GROUP BY company ORDER BY company ASC LIMIT 500`
+    );
+    return result.rows as { company: string; job_count: number }[];
   });
-
-  return result.rows as unknown as { company: string; job_count: number }[];
 }
 
 interface PageViewData {
@@ -202,187 +207,167 @@ interface PageViewData {
   device: string;
 }
 
-export async function logPageView(data: PageViewData) {
-  try {
-    await ensureAnalyticsTables();
-
-    // Single INSERT — compute is_unique via subquery instead of separate SELECT
-    await db.execute({
-      sql: `INSERT INTO page_views (visitor_id, path, referrer, user_agent, ip_hash, country, city, device, is_unique)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?,
-              (SELECT CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END FROM page_views WHERE visitor_id = ?))`,
-      args: [
-        data.visitorId,
-        data.path,
-        data.referrer,
-        data.userAgent,
-        data.ipHash,
-        data.country,
-        data.city,
-        data.device,
-        data.visitorId,
-      ],
-    });
-  } catch {
-    // silently fail
-  }
+export function logPageView(data: PageViewData) {
+  // Fire and forget — don't await
+  ensureAnalyticsTables()
+    .then(() =>
+      pool.query(
+        `INSERT INTO page_views (visitor_id, path, referrer, user_agent, ip_hash, country, city, device, is_unique)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+           NOT EXISTS(SELECT 1 FROM page_views WHERE visitor_id = $1 LIMIT 1))`,
+        [
+          data.visitorId,
+          data.path,
+          data.referrer,
+          data.userAgent,
+          data.ipHash,
+          data.country,
+          data.city,
+          data.device,
+        ]
+      )
+    )
+    .catch(() => {});
 }
 
-export async function logSearch(params: SearchParams, resultsCount: number, visitorId?: string) {
-  try {
-    await ensureAnalyticsTables();
-    await db.execute({
-      sql: "INSERT INTO search_logs (visitor_id, query, source_filter, location_filter, company_filter, results_count) VALUES (?, ?, ?, ?, ?, ?)",
-      args: [
-        visitorId || "anonymous",
-        params.q || null,
-        params.source || null,
-        params.location || null,
-        params.company || null,
-        resultsCount,
-      ],
-    });
-  } catch {
-    // silently fail
-  }
+export function logSearch(params: SearchParams, resultsCount: number, visitorId?: string) {
+  // Fire and forget
+  ensureAnalyticsTables()
+    .then(() =>
+      pool.query(
+        `INSERT INTO search_logs (visitor_id, query, source_filter, location_filter, company_filter, results_count)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          visitorId || "anonymous",
+          params.q || null,
+          params.source || null,
+          params.location || null,
+          params.company || null,
+          resultsCount,
+        ]
+      )
+    )
+    .catch(() => {});
 }
 
 export async function getAnalytics(days: number = 30) {
   await ensureAnalyticsTables();
 
-  const range = `-${days} days`;
-
-  const [
-    totalViews,
-    uniqueVisitors,
-    returningVisitors,
-    viewsByDay,
-    uniquesByDay,
-    topPages,
-    topSearches,
-    searchesByDay,
-    topSourceFilters,
-    topLocationFilters,
-    topCompanyFilters,
-    recentSearches,
-    deviceBreakdown,
-    countryBreakdown,
-    cityBreakdown,
-    referrerBreakdown,
-    hourlyBreakdown,
-    avgPagesPerVisitor,
-  ] = await Promise.all([
-    // Total page views
-    db.execute({
-      sql: `SELECT COUNT(*) as count FROM page_views WHERE created_at >= datetime('now', ?)`,
-      args: [range],
-    }),
-    // Unique visitors
-    db.execute({
-      sql: `SELECT COUNT(DISTINCT visitor_id) as count FROM page_views WHERE created_at >= datetime('now', ?)`,
-      args: [range],
-    }),
-    // Returning visitors (seen more than once)
-    db.execute({
-      sql: `SELECT COUNT(*) as count FROM (
-        SELECT visitor_id FROM page_views WHERE created_at >= datetime('now', ?)
-        GROUP BY visitor_id HAVING COUNT(*) > 1
-      )`,
-      args: [range],
-    }),
-    // Views by day
-    db.execute({
-      sql: `SELECT date(created_at) as day, COUNT(*) as count FROM page_views WHERE created_at >= datetime('now', ?) GROUP BY day ORDER BY day DESC`,
-      args: [range],
-    }),
-    // Unique visitors by day
-    db.execute({
-      sql: `SELECT date(created_at) as day, COUNT(DISTINCT visitor_id) as count FROM page_views WHERE created_at >= datetime('now', ?) GROUP BY day ORDER BY day DESC`,
-      args: [range],
-    }),
-    // Top pages
-    db.execute({
-      sql: `SELECT path, COUNT(*) as views, COUNT(DISTINCT visitor_id) as unique_visitors FROM page_views WHERE created_at >= datetime('now', ?) GROUP BY path ORDER BY views DESC LIMIT 20`,
-      args: [range],
-    }),
-    // Top searches
-    db.execute({
-      sql: `SELECT query, COUNT(*) as count, COUNT(DISTINCT visitor_id) as unique_searchers FROM search_logs WHERE query IS NOT NULL AND created_at >= datetime('now', ?) GROUP BY query ORDER BY count DESC LIMIT 30`,
-      args: [range],
-    }),
-    // Searches by day
-    db.execute({
-      sql: `SELECT date(created_at) as day, COUNT(*) as count FROM search_logs WHERE created_at >= datetime('now', ?) GROUP BY day ORDER BY day DESC`,
-      args: [range],
-    }),
-    // Top platform filters
-    db.execute({
-      sql: `SELECT source_filter, COUNT(*) as count FROM search_logs WHERE source_filter IS NOT NULL AND created_at >= datetime('now', ?) GROUP BY source_filter ORDER BY count DESC LIMIT 10`,
-      args: [range],
-    }),
-    // Top location filters
-    db.execute({
-      sql: `SELECT location_filter, COUNT(*) as count FROM search_logs WHERE location_filter IS NOT NULL AND created_at >= datetime('now', ?) GROUP BY location_filter ORDER BY count DESC LIMIT 15`,
-      args: [range],
-    }),
-    // Top company filters
-    db.execute({
-      sql: `SELECT company_filter, COUNT(*) as count FROM search_logs WHERE company_filter IS NOT NULL AND created_at >= datetime('now', ?) GROUP BY company_filter ORDER BY count DESC LIMIT 15`,
-      args: [range],
-    }),
-    // Recent searches
-    db.execute({
-      sql: `SELECT query, source_filter, location_filter, company_filter, results_count, created_at FROM search_logs ORDER BY created_at DESC LIMIT 50`,
-      args: [],
-    }),
-    // Device breakdown
-    db.execute({
-      sql: `SELECT device, COUNT(*) as count, COUNT(DISTINCT visitor_id) as unique_count FROM page_views WHERE created_at >= datetime('now', ?) GROUP BY device ORDER BY count DESC`,
-      args: [range],
-    }),
-    // Country breakdown
-    db.execute({
-      sql: `SELECT country, COUNT(*) as count, COUNT(DISTINCT visitor_id) as unique_count FROM page_views WHERE country IS NOT NULL AND created_at >= datetime('now', ?) GROUP BY country ORDER BY count DESC LIMIT 20`,
-      args: [range],
-    }),
-    // City breakdown
-    db.execute({
-      sql: `SELECT city, country, COUNT(*) as count, COUNT(DISTINCT visitor_id) as unique_count FROM page_views WHERE city IS NOT NULL AND created_at >= datetime('now', ?) GROUP BY city, country ORDER BY count DESC LIMIT 20`,
-      args: [range],
-    }),
-    // Referrer breakdown
-    db.execute({
-      sql: `SELECT referrer, COUNT(*) as count FROM page_views WHERE referrer IS NOT NULL AND referrer != '' AND created_at >= datetime('now', ?) GROUP BY referrer ORDER BY count DESC LIMIT 15`,
-      args: [range],
-    }),
-    // Hourly breakdown (peak hours)
-    db.execute({
-      sql: `SELECT strftime('%H', created_at) as hour, COUNT(*) as count FROM page_views WHERE created_at >= datetime('now', ?) GROUP BY hour ORDER BY hour`,
-      args: [range],
-    }),
-    // Avg pages per visitor
-    db.execute({
-      sql: `SELECT ROUND(AVG(page_count), 1) as avg_pages FROM (
-        SELECT visitor_id, COUNT(*) as page_count FROM page_views WHERE created_at >= datetime('now', ?) GROUP BY visitor_id
-      )`,
-      args: [range],
-    }),
+  // Consolidated into 4 queries using CTEs instead of 17 parallel queries
+  const [pvStats, pvDaily, searchStats, searchRecent] = await Promise.all([
+    // Page view aggregates in one query
+    pool.query(
+      `WITH filtered AS (
+        SELECT * FROM page_views WHERE created_at >= NOW() - $1::interval
+      )
+      SELECT
+        (SELECT COUNT(*) FROM filtered) as total_views,
+        (SELECT COUNT(DISTINCT visitor_id) FROM filtered) as unique_visitors,
+        (SELECT COUNT(*) FROM (SELECT visitor_id FROM filtered GROUP BY visitor_id HAVING COUNT(*) > 1) r) as returning_visitors,
+        (SELECT ROUND(AVG(c)::numeric, 1) FROM (SELECT COUNT(*) as c FROM filtered GROUP BY visitor_id) a) as avg_pages`,
+      [`${days} days`]
+    ),
+    // Daily breakdown + top pages + devices + countries + cities + referrers + hourly — one big query
+    pool.query(
+      `WITH filtered AS (
+        SELECT * FROM page_views WHERE created_at >= NOW() - $1::interval
+      ),
+      by_day AS (
+        SELECT created_at::date as day, COUNT(*) as count, COUNT(DISTINCT visitor_id) as uniques
+        FROM filtered GROUP BY day ORDER BY day DESC
+      ),
+      top_pages AS (
+        SELECT path, COUNT(*) as views, COUNT(DISTINCT visitor_id) as unique_visitors
+        FROM filtered GROUP BY path ORDER BY views DESC LIMIT 20
+      ),
+      devices AS (
+        SELECT device, COUNT(*) as count, COUNT(DISTINCT visitor_id) as unique_count
+        FROM filtered GROUP BY device ORDER BY count DESC
+      ),
+      countries AS (
+        SELECT country, COUNT(*) as count, COUNT(DISTINCT visitor_id) as unique_count
+        FROM filtered WHERE country IS NOT NULL GROUP BY country ORDER BY count DESC LIMIT 20
+      ),
+      cities AS (
+        SELECT city, country, COUNT(*) as count, COUNT(DISTINCT visitor_id) as unique_count
+        FROM filtered WHERE city IS NOT NULL GROUP BY city, country ORDER BY count DESC LIMIT 20
+      ),
+      referrers AS (
+        SELECT referrer, COUNT(*) as count
+        FROM filtered WHERE referrer IS NOT NULL AND referrer != '' GROUP BY referrer ORDER BY count DESC LIMIT 15
+      ),
+      hourly AS (
+        SELECT TO_CHAR(created_at, 'HH24') as hour, COUNT(*) as count
+        FROM filtered GROUP BY hour ORDER BY hour
+      )
+      SELECT json_build_object(
+        'by_day', (SELECT COALESCE(json_agg(by_day), '[]') FROM by_day),
+        'top_pages', (SELECT COALESCE(json_agg(top_pages), '[]') FROM top_pages),
+        'devices', (SELECT COALESCE(json_agg(devices), '[]') FROM devices),
+        'countries', (SELECT COALESCE(json_agg(countries), '[]') FROM countries),
+        'cities', (SELECT COALESCE(json_agg(cities), '[]') FROM cities),
+        'referrers', (SELECT COALESCE(json_agg(referrers), '[]') FROM referrers),
+        'hourly', (SELECT COALESCE(json_agg(hourly), '[]') FROM hourly)
+      ) as data`,
+      [`${days} days`]
+    ),
+    // Search aggregates
+    pool.query(
+      `WITH filtered AS (
+        SELECT * FROM search_logs WHERE created_at >= NOW() - $1::interval
+      ),
+      by_day AS (
+        SELECT created_at::date as day, COUNT(*) as count FROM filtered GROUP BY day ORDER BY day DESC
+      ),
+      top_queries AS (
+        SELECT query, COUNT(*) as count, COUNT(DISTINCT visitor_id) as unique_searchers
+        FROM filtered WHERE query IS NOT NULL GROUP BY query ORDER BY count DESC LIMIT 30
+      ),
+      top_sources AS (
+        SELECT source_filter, COUNT(*) as count
+        FROM filtered WHERE source_filter IS NOT NULL GROUP BY source_filter ORDER BY count DESC LIMIT 10
+      ),
+      top_locations AS (
+        SELECT location_filter, COUNT(*) as count
+        FROM filtered WHERE location_filter IS NOT NULL GROUP BY location_filter ORDER BY count DESC LIMIT 15
+      ),
+      top_companies AS (
+        SELECT company_filter, COUNT(*) as count
+        FROM filtered WHERE company_filter IS NOT NULL GROUP BY company_filter ORDER BY count DESC LIMIT 15
+      )
+      SELECT json_build_object(
+        'by_day', (SELECT COALESCE(json_agg(by_day), '[]') FROM by_day),
+        'top_queries', (SELECT COALESCE(json_agg(top_queries), '[]') FROM top_queries),
+        'top_sources', (SELECT COALESCE(json_agg(top_sources), '[]') FROM top_sources),
+        'top_locations', (SELECT COALESCE(json_agg(top_locations), '[]') FROM top_locations),
+        'top_companies', (SELECT COALESCE(json_agg(top_companies), '[]') FROM top_companies)
+      ) as data`,
+      [`${days} days`]
+    ),
+    // Recent searches (no date filter)
+    pool.query(
+      `SELECT query, source_filter, location_filter, company_filter, results_count, created_at
+       FROM search_logs ORDER BY created_at DESC LIMIT 50`
+    ),
   ]);
 
+  const pv = pvDaily.rows[0].data;
+  const sr = searchStats.rows[0].data;
+
   return {
-    totalViews: Number(totalViews.rows[0].count),
-    uniqueVisitors: Number(uniqueVisitors.rows[0].count),
-    returningVisitors: Number(returningVisitors.rows[0].count),
-    avgPagesPerVisitor: Number(avgPagesPerVisitor.rows[0]?.avg_pages || 0),
-    viewsByDay: viewsByDay.rows as unknown as { day: string; count: number }[],
-    uniquesByDay: uniquesByDay.rows as unknown as { day: string; count: number }[],
-    topPages: topPages.rows as unknown as { path: string; views: number; unique_visitors: number }[],
-    topSearches: topSearches.rows as unknown as { query: string; count: number; unique_searchers: number }[],
-    searchesByDay: searchesByDay.rows as unknown as { day: string; count: number }[],
-    topSourceFilters: topSourceFilters.rows as unknown as { source_filter: string; count: number }[],
-    topLocationFilters: topLocationFilters.rows as unknown as { location_filter: string; count: number }[],
-    topCompanyFilters: topCompanyFilters.rows as unknown as { company_filter: string; count: number }[],
-    recentSearches: recentSearches.rows as unknown as {
+    totalViews: Number(pvStats.rows[0].total_views),
+    uniqueVisitors: Number(pvStats.rows[0].unique_visitors),
+    returningVisitors: Number(pvStats.rows[0].returning_visitors),
+    avgPagesPerVisitor: Number(pvStats.rows[0].avg_pages || 0),
+    viewsByDay: pv.by_day as { day: string; count: number }[],
+    uniquesByDay: pv.by_day as { day: string; count: number; uniques: number }[],
+    topPages: pv.top_pages as { path: string; views: number; unique_visitors: number }[],
+    topSearches: sr.top_queries as { query: string; count: number; unique_searchers: number }[],
+    searchesByDay: sr.by_day as { day: string; count: number }[],
+    topSourceFilters: sr.top_sources as { source_filter: string; count: number }[],
+    topLocationFilters: sr.top_locations as { location_filter: string; count: number }[],
+    topCompanyFilters: sr.top_companies as { company_filter: string; count: number }[],
+    recentSearches: searchRecent.rows as {
       query: string | null;
       source_filter: string | null;
       location_filter: string | null;
@@ -390,18 +375,10 @@ export async function getAnalytics(days: number = 30) {
       results_count: number;
       created_at: string;
     }[],
-    devices: deviceBreakdown.rows as unknown as { device: string; count: number; unique_count: number }[],
-    countries: countryBreakdown.rows as unknown as { country: string; count: number; unique_count: number }[],
-    cities: cityBreakdown.rows as unknown as { city: string; country: string; count: number; unique_count: number }[],
-    referrers: referrerBreakdown.rows as unknown as { referrer: string; count: number }[],
-    hourly: hourlyBreakdown.rows as unknown as { hour: string; count: number }[],
+    devices: pv.devices as { device: string; count: number; unique_count: number }[],
+    countries: pv.countries as { country: string; count: number; unique_count: number }[],
+    cities: pv.cities as { city: string; country: string; count: number; unique_count: number }[],
+    referrers: pv.referrers as { referrer: string; count: number }[],
+    hourly: pv.hourly as { hour: string; count: number }[],
   };
-}
-
-export async function clearAnalytics() {
-  await ensureAnalyticsTables();
-  await db.batch([
-    "DELETE FROM page_views",
-    "DELETE FROM search_logs",
-  ]);
 }

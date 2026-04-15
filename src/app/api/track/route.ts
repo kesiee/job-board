@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { logPageView } from "@/lib/queries";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 
 const BOT_PATTERNS = [
   /vercel/i,
@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
         ? "tablet"
         : "desktop";
 
-    await logPageView({
+    logPageView({
       visitorId,
       path,
       referrer: referrer || null,

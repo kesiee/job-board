@@ -85,9 +85,9 @@ export default async function AdminPage({
             </thead>
             <tbody>
               {data.viewsByDay.map((d) => {
-                const max = Math.max(...data.viewsByDay.map((v) => v.count), 1);
-                const uniqueDay = data.uniquesByDay.find((u) => u.day === d.day);
-                const uniqueCount = uniqueDay?.count || 0;
+                const max = Math.max(...data.viewsByDay.map((v: { count: number }) => v.count), 1);
+                const dAny = d as { day: string; count: number; uniques?: number };
+                const uniqueCount = dAny.uniques || 0;
                 return (
                   <tr key={d.day} className="border-b border-gray-50">
                     <td className="py-1.5 text-gray-700">{d.day}</td>

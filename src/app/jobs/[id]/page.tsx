@@ -79,6 +79,17 @@ export default async function JobPage({
           </span>
         </div>
 
+        {job.description && (
+          <div className="mt-6 border-t border-gray-100 pt-6">
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500">
+              Description
+            </h2>
+            <div className="prose prose-sm max-w-none text-gray-700 whitespace-pre-wrap">
+              {job.description}
+            </div>
+          </div>
+        )}
+
         <div className="mt-6 border-t border-gray-100 pt-6">
           <a
             href={job.url}
@@ -89,7 +100,7 @@ export default async function JobPage({
             View full listing &amp; apply &rarr;
           </a>
           <p className="mt-2 text-xs text-gray-400">
-            Opens the original job posting on {job.source || "the company's"} careers page
+            Opens the original job posting on {job.source || "the company&apos;s"} careers page
           </p>
         </div>
       </div>

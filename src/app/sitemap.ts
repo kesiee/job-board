@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { pool } from "@/lib/db";
 import type { MetadataRoute } from "next";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
@@ -11,8 +11,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${baseUrl}/stats`, changeFrequency: "daily", priority: 0.5 },
   ];
 
-  // Top 500 companies by job count
-  const companies = await db.execute(
+  const companies = await pool.query(
     "SELECT company FROM jobs GROUP BY company ORDER BY COUNT(*) DESC LIMIT 500"
   );
 
