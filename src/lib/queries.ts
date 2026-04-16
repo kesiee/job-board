@@ -273,8 +273,8 @@ export async function getAnalytics(days: number = 30) {
         SELECT * FROM page_views WHERE created_at >= NOW() - $1::interval
       ),
       by_day AS (
-        SELECT created_at::date as day, COUNT(*) as count, COUNT(DISTINCT visitor_id) as uniques
-        FROM filtered GROUP BY day ORDER BY day DESC
+        SELECT created_at::date::text as day, COUNT(*) as count, COUNT(DISTINCT visitor_id) as uniques
+        FROM filtered GROUP BY created_at::date ORDER BY created_at::date DESC
       ),
       top_pages AS (
         SELECT path, COUNT(*) as views, COUNT(DISTINCT visitor_id) as unique_visitors
@@ -317,7 +317,7 @@ export async function getAnalytics(days: number = 30) {
         SELECT * FROM search_logs WHERE created_at >= NOW() - $1::interval
       ),
       by_day AS (
-        SELECT created_at::date as day, COUNT(*) as count FROM filtered GROUP BY day ORDER BY day DESC
+        SELECT created_at::date::text as day, COUNT(*) as count FROM filtered GROUP BY created_at::date ORDER BY created_at::date DESC
       ),
       top_queries AS (
         SELECT query, COUNT(*) as count, COUNT(DISTINCT visitor_id) as unique_searchers
@@ -346,7 +346,7 @@ export async function getAnalytics(days: number = 30) {
     ),
     // Recent searches (no date filter)
     pool.query(
-      `SELECT query, source_filter, location_filter, company_filter, results_count, created_at
+      `SELECT query, source_filter, location_filter, company_filter, results_count, created_at::text
        FROM search_logs ORDER BY created_at DESC LIMIT 50`
     ),
   ]);
