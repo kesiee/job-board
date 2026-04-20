@@ -47,7 +47,7 @@ export async function searchJobs(params: SearchParams) {
       }
 
       const conditions: string[] = [
-        `to_tsvector('english', title || ' ' || company || ' ' || COALESCE(location, '')) @@ to_tsquery('english', $1)`
+        `to_tsvector('english', title || ' ' || company || ' ' || COALESCE(location, '') || ' ' || COALESCE(description, '')) @@ to_tsquery('english', $1)`
       ];
       const args: (string | number)[] = [tsQuery + ":*"];
       let paramIdx = 2;
@@ -69,7 +69,7 @@ export async function searchJobs(params: SearchParams) {
       const orderBy =
         params.sort === "company"
           ? "company ASC, scraped_at DESC"
-          : `ts_rank(to_tsvector('english', title || ' ' || company || ' ' || COALESCE(location, '')), to_tsquery('english', $1)) DESC, scraped_at DESC`;
+          : `ts_rank(to_tsvector('english', title || ' ' || company || ' ' || COALESCE(location, '') || ' ' || COALESCE(description, '')), to_tsquery('english', $1)) DESC, scraped_at DESC`;
 
       const [countResult, jobsResult] = await Promise.all([
         pool.query(`SELECT COUNT(*) as total FROM jobs ${where}`, args),

@@ -48,9 +48,11 @@ let ftsInitialized = false;
 
 export async function ensureFTS() {
   if (ftsInitialized) return;
+  // Drop old index that didn't include description
+  await pool.query(`DROP INDEX IF EXISTS idx_jobs_fts`);
   await pool.query(`
-    CREATE INDEX IF NOT EXISTS idx_jobs_fts
-    ON jobs USING gin(to_tsvector('english', title || ' ' || company || ' ' || COALESCE(location, '')))
+    CREATE INDEX IF NOT EXISTS idx_jobs_fts_v2
+    ON jobs USING gin(to_tsvector('english', title || ' ' || company || ' ' || COALESCE(location, '') || ' ' || COALESCE(description, '')))
   `);
   ftsInitialized = true;
 }
