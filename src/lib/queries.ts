@@ -67,7 +67,11 @@ export async function searchJobs(params: SearchParams) {
       const orderBy =
         params.sort === "company"
           ? "company ASC, scraped_at DESC"
-          : `ts_rank(fts, to_tsquery('english', $1)) DESC, scraped_at DESC`;
+          : `CASE
+               WHEN to_tsvector('english', title) @@ to_tsquery('english', $1) THEN 0
+               WHEN to_tsvector('english', COALESCE(description, '')) @@ to_tsquery('english', $1) THEN 1
+               ELSE 2
+             END, scraped_at DESC`;
 
       const [countResult, jobsResult] = await Promise.all([
         pool.query(`SELECT COUNT(*) as total FROM jobs ${where}`, args),
