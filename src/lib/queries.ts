@@ -1,4 +1,4 @@
-import { pool, ensureAnalyticsTables, ensureFTS } from "./db";
+import { pool, ensureAnalyticsTables } from "./db";
 import { cached } from "./cache";
 
 export interface Job {
@@ -31,8 +31,6 @@ export async function searchJobs(params: SearchParams) {
 
   const cacheKey = `search:${JSON.stringify(params)}`;
   return cached(cacheKey, 60, async () => {
-    await ensureFTS();
-
     if (params.q) {
       // Postgres full-text search
       const tsQuery = params.q
