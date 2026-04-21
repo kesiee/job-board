@@ -1,22 +1,28 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useTransition } from "react";
+import { useCallback, useState, useTransition } from "react";
 
 export function SearchFilters({ sources }: { sources: string[] }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
 
+  const [q, setQ] = useState(searchParams.get("q") || "");
+  const [location, setLocation] = useState(searchParams.get("location") || "");
+  const [company, setCompany] = useState(searchParams.get("company") || "");
+
   const updateParams = useCallback(
-    (key: string, value: string) => {
+    (updates: Record<string, string>) => {
       const params = new URLSearchParams(searchParams.toString());
-      if (value) {
-        params.set(key, value);
-      } else {
-        params.delete(key);
+      for (const [key, value] of Object.entries(updates)) {
+        if (value) {
+          params.set(key, value);
+        } else {
+          params.delete(key);
+        }
       }
-      params.delete("page"); // reset to page 1 on filter change
+      params.delete("page");
       startTransition(() => {
         router.push(`/jobs?${params.toString()}`);
       });
@@ -24,72 +30,75 @@ export function SearchFilters({ sources }: { sources: string[] }) {
     [router, searchParams]
   );
 
+  const handleSearch = () => {
+    updateParams({ q, location, company });
+  };
+
   return (
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
-      <div className="relative flex-1">
+    <div className="flex flex-col gap-3">
+      <div className="flex gap-2">
         <input
           type="text"
           placeholder="Search jobs or companies..."
-          defaultValue={searchParams.get("q") || ""}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              updateParams("q", (e.target as HTMLInputElement).value);
-            }
-          }}
-          className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+          className="min-w-0 flex-1 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
         />
-        {isPending && (
-          <div className="absolute right-3 top-1/2 -translate-y-1/2">
-            <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600" />
-          </div>
-        )}
+        <button
+          onClick={handleSearch}
+          disabled={isPending}
+          className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
+        >
+          {isPending ? (
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+          ) : (
+            "Search"
+          )}
+        </button>
       </div>
 
-      <select
-        defaultValue={searchParams.get("source") || ""}
-        onChange={(e) => updateParams("source", e.target.value)}
-        className="rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-700 focus:border-blue-500 focus:outline-none"
-      >
-        <option value="">All platforms</option>
-        {sources.map((s) => (
-          <option key={s} value={s}>
-            {s}
-          </option>
-        ))}
-      </select>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+        <select
+          value={searchParams.get("source") || ""}
+          onChange={(e) => updateParams({ source: e.target.value })}
+          className="rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-700 focus:border-blue-500 focus:outline-none"
+        >
+          <option value="">All platforms</option>
+          {sources.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
 
-      <input
-        type="text"
-        placeholder="Location..."
-        defaultValue={searchParams.get("location") || ""}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            updateParams("location", (e.target as HTMLInputElement).value);
-          }
-        }}
-        className="rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-700 placeholder-gray-400 focus:border-blue-500 focus:outline-none sm:w-40"
-      />
+        <input
+          type="text"
+          placeholder="Location..."
+          value={location}
+          onChange={(e) => setLocation(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+          className="rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-700 placeholder-gray-400 focus:border-blue-500 focus:outline-none sm:w-40"
+        />
 
-      <input
-        type="text"
-        placeholder="Company..."
-        defaultValue={searchParams.get("company") || ""}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            updateParams("company", (e.target as HTMLInputElement).value);
-          }
-        }}
-        className="rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-700 placeholder-gray-400 focus:border-blue-500 focus:outline-none sm:w-40"
-      />
+        <input
+          type="text"
+          placeholder="Company..."
+          value={company}
+          onChange={(e) => setCompany(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+          className="rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-700 placeholder-gray-400 focus:border-blue-500 focus:outline-none sm:w-40"
+        />
 
-      <select
-        defaultValue={searchParams.get("sort") || "newest"}
-        onChange={(e) => updateParams("sort", e.target.value)}
-        className="rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-700 focus:border-blue-500 focus:outline-none"
-      >
-        <option value="newest">Newest first</option>
-        <option value="company">Company A-Z</option>
-      </select>
+        <select
+          value={searchParams.get("sort") || "newest"}
+          onChange={(e) => updateParams({ sort: e.target.value })}
+          className="rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-700 focus:border-blue-500 focus:outline-none"
+        >
+          <option value="newest">Newest first</option>
+          <option value="company">Company A-Z</option>
+        </select>
+      </div>
     </div>
   );
 }
