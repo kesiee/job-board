@@ -45,8 +45,7 @@ export async function searchJobs(params: SearchParams) {
       }
 
       const conditions: string[] = [
-        `(to_tsvector('english', title || ' ' || company || ' ' || COALESCE(location, '')) @@ to_tsquery('english', $1)
-         OR description_tsv @@ to_tsquery('english', $1))`
+        `description_tsv @@ to_tsquery('english', $1)`
       ];
       const args: (string | number)[] = [tsQuery + ":*"];
       let paramIdx = 2;
@@ -69,10 +68,15 @@ export async function searchJobs(params: SearchParams) {
         params.sort === "company"
           ? "company ASC, scraped_at DESC"
           : `CASE
-               WHEN to_tsvector('english', title) @@ to_tsquery('english', $1) THEN 0
-               WHEN description_tsv @@ to_tsquery('english', $1) THEN 1
-               ELSE 2
+               WHEN title ILIKE '%' || $${paramIdx} || '%' THEN 0
+               ELSE 1
              END, scraped_at DESC`;
+
+      // For ORDER BY, add raw search term for title ILIKE ranking
+      const rawTerm = params.q.replace(/['"(){}[\]*:^~!@#$%&\\]/g, " ").trim();
+      const jobsArgs = [...args, rawTerm, PAGE_SIZE, offset];
+      const limitIdx = paramIdx + 1;
+      const offsetIdx = paramIdx + 2;
 
       const [countResult, jobsResult] = await Promise.all([
         pool.query(`SELECT COUNT(*) as total FROM jobs ${where}`, args),
@@ -80,8 +84,8 @@ export async function searchJobs(params: SearchParams) {
           `SELECT id, title, company, url, location, source, date_posted, scraped_at
            FROM jobs ${where}
            ORDER BY ${orderBy}
-           LIMIT $${paramIdx++} OFFSET $${paramIdx}`,
-          [...args, PAGE_SIZE, offset]
+           LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+          jobsArgs
         ),
       ]);
 
