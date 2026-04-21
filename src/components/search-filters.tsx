@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useState, useTransition } from "react";
+import { useCallback, useEffect, useState, useTransition } from "react";
 
 export function SearchFilters({ sources }: { sources: string[] }) {
   const router = useRouter();
@@ -11,6 +11,12 @@ export function SearchFilters({ sources }: { sources: string[] }) {
   const [q, setQ] = useState(searchParams.get("q") || "");
   const [location, setLocation] = useState(searchParams.get("location") || "");
   const [company, setCompany] = useState(searchParams.get("company") || "");
+
+  useEffect(() => {
+    setQ(searchParams.get("q") || "");
+    setLocation(searchParams.get("location") || "");
+    setCompany(searchParams.get("company") || "");
+  }, [searchParams]);
 
   const updateParams = useCallback(
     (updates: Record<string, string>) => {
