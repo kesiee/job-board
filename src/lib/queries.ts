@@ -45,7 +45,8 @@ export async function searchJobs(params: SearchParams) {
       }
 
       const conditions: string[] = [
-        `fts @@ to_tsquery('english', $1)`
+        `(to_tsvector('english', title || ' ' || company || ' ' || COALESCE(location, '')) @@ to_tsquery('english', $1)
+         OR description_tsv @@ to_tsquery('english', $1))`
       ];
       const args: (string | number)[] = [tsQuery + ":*"];
       let paramIdx = 2;
@@ -69,7 +70,7 @@ export async function searchJobs(params: SearchParams) {
           ? "company ASC, scraped_at DESC"
           : `CASE
                WHEN to_tsvector('english', title) @@ to_tsquery('english', $1) THEN 0
-               WHEN to_tsvector('english', COALESCE(description, '')) @@ to_tsquery('english', $1) THEN 1
+               WHEN description_tsv @@ to_tsquery('english', $1) THEN 1
                ELSE 2
              END, scraped_at DESC`;
 
