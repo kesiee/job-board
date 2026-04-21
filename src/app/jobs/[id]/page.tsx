@@ -1,7 +1,7 @@
 import { getJob } from "@/lib/queries";
 import { notFound } from "next/navigation";
 import { timeAgo, platformColor } from "@/lib/utils";
-import Link from "next/link";
+import { BackToJobs } from "@/components/back-to-jobs";
 import type { Metadata } from "next";
 
 export async function generateMetadata({
@@ -33,12 +33,7 @@ export default async function JobPage({
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">
-      <Link
-        href="/jobs"
-        className="mb-6 inline-flex items-center text-sm text-gray-500 hover:text-gray-700"
-      >
-        &larr; Back to jobs
-      </Link>
+      <BackToJobs />
 
       <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
         <div className="flex items-start justify-between gap-4">
