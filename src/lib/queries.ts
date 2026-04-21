@@ -1,5 +1,6 @@
 import { pool, ensureAnalyticsTables } from "./db";
 import { cached } from "./cache";
+import { needsDescription, fetchAndSaveDescription } from "./scrape-jd";
 
 export interface Job {
   id: number;
@@ -150,7 +151,14 @@ export async function searchJobs(params: SearchParams) {
 
 export async function getJob(id: number) {
   const result = await pool.query("SELECT * FROM jobs WHERE id = $1", [id]);
-  return (result.rows[0] as Job) || null;
+  const job = (result.rows[0] as Job) || null;
+
+  if (job && needsDescription(job.description)) {
+    const fetched = await fetchAndSaveDescription(job.id, job.url);
+    if (fetched) job.description = fetched;
+  }
+
+  return job;
 }
 
 export function getStats() {
