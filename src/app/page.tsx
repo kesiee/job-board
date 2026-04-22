@@ -1,8 +1,31 @@
 import Link from "next/link";
 import { getStats } from "@/lib/queries";
-import { formatNumber, platformColor } from "@/lib/utils";
+import { formatNumber } from "@/lib/utils";
 
 export const revalidate = 300;
+
+const categories = [
+  { label: "Sales", query: "sales account executive business development", icon: "🤝", count: "41K+" },
+  { label: "Software Engineering", query: "software engineer developer full stack backend frontend", icon: "💻", count: "27K+" },
+  { label: "IT / Support", query: "IT support helpdesk system admin technician", icon: "🖥️", count: "22K+" },
+  { label: "Design / UX", query: "designer ux ui user experience graphic design", icon: "🎨", count: "22K+" },
+  { label: "Healthcare", query: "healthcare nurse medical clinical therapist", icon: "🏥", count: "20K+" },
+  { label: "Marketing", query: "marketing growth seo content brand social media", icon: "📈", count: "17K+" },
+  { label: "Product & Program", query: "product manager program manager project manager", icon: "📋", count: "15K+" },
+  { label: "Retail / Store", query: "store manager retail cashier merchandising grocery", icon: "🏪", count: "10K+" },
+  { label: "Finance", query: "finance accountant financial analyst accounting", icon: "💰", count: "10K+" },
+  { label: "Data & Analytics", query: "data scientist data analyst data engineer analytics", icon: "📊", count: "9K+" },
+  { label: "HR / Recruiting", query: "recruiter talent human resources people", icon: "👥", count: "6K+" },
+  { label: "QA / Testing", query: "qa quality test engineer automation tester", icon: "🧪", count: "6K+" },
+  { label: "DevOps / Cloud", query: "devops sre cloud engineer platform infrastructure", icon: "⚙️", count: "6K+" },
+  { label: "Customer Success", query: "customer service customer success account manager", icon: "🎧", count: "5K+" },
+  { label: "Food & Hospitality", query: "cook restaurant server bartender hospitality", icon: "🍽️", count: "5K+" },
+  { label: "AI / Machine Learning", query: "machine learning ai engineer deep learning nlp", icon: "🤖", count: "4K+" },
+  { label: "Warehouse / Logistics", query: "warehouse logistics shipping forklift distribution", icon: "📦", count: "3K+" },
+  { label: "Cybersecurity", query: "cybersecurity security engineer infosec penetration", icon: "🔒", count: "3K+" },
+  { label: "Mobile Dev", query: "mobile ios android react native flutter", icon: "📱", count: "2K+" },
+  { label: "Operations", query: "operations manager general manager department supervisor", icon: "🏢", count: "2K+" },
+];
 
 export default async function Home() {
   const stats = await getStats();
@@ -39,22 +62,18 @@ export default async function Home() {
         </div>
       </form>
 
-      <div className="mt-16 grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
-        {stats.platforms.map((p) => (
+      <div className="mt-16 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+        {categories.map((cat) => (
           <Link
-            key={p.source}
-            href={`/jobs?source=${p.source}`}
+            key={cat.label}
+            href={`/jobs?q=${encodeURIComponent(cat.query)}`}
             className="rounded-xl border border-gray-200 bg-white p-4 text-center shadow-sm transition-shadow hover:shadow-md"
           >
-            <span
-              className={`inline-block rounded-full px-2.5 py-1 text-xs font-semibold ${platformColor(p.source)}`}
-            >
-              {p.source}
-            </span>
-            <p className="mt-2 text-2xl font-bold text-gray-900">
-              {formatNumber(p.count)}
+            <span className="text-2xl">{cat.icon}</span>
+            <p className="mt-2 text-sm font-semibold text-gray-900">
+              {cat.label}
             </p>
-            <p className="text-xs text-gray-500">jobs</p>
+            <p className="mt-0.5 text-xs text-gray-400">{cat.count} jobs</p>
           </Link>
         ))}
       </div>
