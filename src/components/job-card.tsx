@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Job } from "@/lib/queries";
-import { timeAgo, platformColor } from "@/lib/utils";
+import { timeAgo } from "@/lib/utils";
 
 export function JobCard({ job }: { job: Job }) {
   return (
@@ -20,13 +20,6 @@ export function JobCard({ job }: { job: Job }) {
                 <span className="text-gray-300">|</span>
                 <span className="line-clamp-1">{job.location}</span>
               </>
-            )}
-            {job.source && (
-              <span
-                className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${platformColor(job.source)}`}
-              >
-                {job.source}
-              </span>
             )}
           </div>
         </div>

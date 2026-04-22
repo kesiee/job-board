@@ -3,7 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState, useTransition } from "react";
 
-export function SearchFilters({ sources }: { sources: string[] }) {
+export function SearchFilters() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
@@ -65,19 +65,6 @@ export function SearchFilters({ sources }: { sources: string[] }) {
       </div>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-        <select
-          value={searchParams.get("source") || ""}
-          onChange={(e) => updateParams({ source: e.target.value })}
-          className="rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-700 focus:border-blue-500 focus:outline-none"
-        >
-          <option value="">All platforms</option>
-          {sources.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-
         <input
           type="text"
           placeholder="Location..."

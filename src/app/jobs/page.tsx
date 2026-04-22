@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { searchJobs, getSources } from "@/lib/queries";
+import { searchJobs } from "@/lib/queries";
 import { SearchFilters } from "@/components/search-filters";
 import { JobCard } from "@/components/job-card";
 import { Pagination } from "@/components/pagination";
@@ -25,10 +25,7 @@ export default async function JobsPage({
   const sort = typeof params.sort === "string" ? params.sort : undefined;
   const page = typeof params.page === "string" ? parseInt(params.page) : 1;
 
-  const [{ jobs, total, totalPages }, sources] = await Promise.all([
-    searchJobs({ q, category, source, location, company, sort, page }),
-    getSources(),
-  ]);
+  const { jobs, total, totalPages } = await searchJobs({ q, category, source, location, company, sort, page });
 
   const currentParams: Record<string, string> = {};
   if (q) currentParams.q = q;
@@ -50,7 +47,7 @@ export default async function JobsPage({
       </div>
 
       <Suspense fallback={null}>
-        <SearchFilters sources={sources} />
+        <SearchFilters />
       </Suspense>
 
       <div className="mt-6">

@@ -1,6 +1,6 @@
 import { getJob } from "@/lib/queries";
 import { notFound } from "next/navigation";
-import { timeAgo, platformColor } from "@/lib/utils";
+import { timeAgo } from "@/lib/utils";
 import { BackToJobs } from "@/components/back-to-jobs";
 import type { Metadata } from "next";
 
@@ -57,13 +57,6 @@ export default async function JobPage({
               {job.location}
             </span>
           )}
-          {job.source && (
-            <span
-              className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ${platformColor(job.source)}`}
-            >
-              {job.source}
-            </span>
-          )}
           {job.date_posted && (
             <span className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700">
               Posted: {job.date_posted}
@@ -95,7 +88,7 @@ export default async function JobPage({
             View full listing &amp; apply &rarr;
           </a>
           <p className="mt-2 text-xs text-gray-400">
-            Opens the original job posting on {job.source || "the company&apos;s"} careers page
+            Opens the original job posting on the company&apos;s careers page
           </p>
         </div>
       </div>
