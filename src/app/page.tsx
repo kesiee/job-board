@@ -4,29 +4,6 @@ import { formatNumber } from "@/lib/utils";
 
 export const revalidate = 300;
 
-const categories = [
-  { label: "Sales", icon: "🤝", count: "41K+" },
-  { label: "Software Engineering", icon: "💻", count: "27K+" },
-  { label: "IT / Support", icon: "🖥️", count: "22K+" },
-  { label: "Design / UX", icon: "🎨", count: "22K+" },
-  { label: "Healthcare", icon: "🏥", count: "20K+" },
-  { label: "Marketing", icon: "📈", count: "17K+" },
-  { label: "Product & Program", icon: "📋", count: "15K+" },
-  { label: "Retail / Store", icon: "🏪", count: "10K+" },
-  { label: "Finance", icon: "💰", count: "10K+" },
-  { label: "Data & Analytics", icon: "📊", count: "9K+" },
-  { label: "HR / Recruiting", icon: "👥", count: "6K+" },
-  { label: "QA / Testing", icon: "🧪", count: "6K+" },
-  { label: "DevOps / Cloud", icon: "⚙️", count: "6K+" },
-  { label: "Customer Success", icon: "🎧", count: "5K+" },
-  { label: "Food & Hospitality", icon: "🍽️", count: "5K+" },
-  { label: "AI / Machine Learning", icon: "🤖", count: "4K+" },
-  { label: "Warehouse / Logistics", icon: "📦", count: "3K+" },
-  { label: "Cybersecurity", icon: "🔒", count: "3K+" },
-  { label: "Mobile Dev", icon: "📱", count: "2K+" },
-  { label: "Operations", icon: "🏢", count: "2K+" },
-];
-
 export default async function Home() {
   const stats = await getStats();
 
@@ -38,10 +15,6 @@ export default async function Home() {
         </h1>
         <p className="mt-3 text-xl text-gray-500">
           Every open role. One search.
-        </p>
-        <p className="mt-2 text-sm text-gray-400">
-          {formatNumber(stats.totalJobs)} jobs across{" "}
-          {formatNumber(stats.totalCompanies)} companies
         </p>
       </div>
 
@@ -62,20 +35,25 @@ export default async function Home() {
         </div>
       </form>
 
-      <div className="mt-16 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-        {categories.map((cat) => (
-          <Link
-            key={cat.label}
-            href={`/jobs?category=${encodeURIComponent(cat.label)}`}
-            className="rounded-xl border border-gray-200 bg-white p-4 text-center shadow-sm transition-shadow hover:shadow-md"
-          >
-            <span className="text-2xl">{cat.icon}</span>
-            <p className="mt-2 text-sm font-semibold text-gray-900">
-              {cat.label}
-            </p>
-            <p className="mt-0.5 text-xs text-gray-400">{cat.count} jobs</p>
-          </Link>
-        ))}
+      <div className="mt-12 grid gap-4 sm:grid-cols-3">
+        <div className="rounded-xl border border-gray-200 bg-white p-6 text-center shadow-sm">
+          <p className="text-4xl font-bold text-gray-900">
+            {formatNumber(stats.totalJobs)}
+          </p>
+          <p className="mt-1 text-sm text-gray-500">Total Jobs</p>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-6 text-center shadow-sm">
+          <p className="text-4xl font-bold text-gray-900">
+            {formatNumber(stats.totalCompanies)}
+          </p>
+          <p className="mt-1 text-sm text-gray-500">Companies</p>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-6 text-center shadow-sm">
+          <p className="text-4xl font-bold text-green-600">
+            +{formatNumber(stats.todayJobs)}
+          </p>
+          <p className="mt-1 text-sm text-gray-500">Added Today</p>
+        </div>
       </div>
 
       <div className="mt-12 flex justify-center gap-4">

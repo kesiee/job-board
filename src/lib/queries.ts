@@ -24,29 +24,6 @@ export interface SearchParams {
   page?: number;
 }
 
-const CATEGORY_PATTERNS: Record<string, string> = {
-  "Software Engineering": 'software engineer|software developer|swe|sde|full.?stack|backend|frontend|web developer',
-  "Sales": 'sales|account executive|business development|bdr|sdr',
-  "IT / Support": 'support|helpdesk|help desk|it specialist|system admin|sysadmin|technician',
-  "Design / UX": 'designer|ux|ui|user experience|user interface|graphic design',
-  "Healthcare": 'nurse|doctor|medical|clinical|health|pharma|biotech|therapist|counselor',
-  "Marketing": 'marketing|growth|seo|content|brand|social media',
-  "Product & Program": 'product manager|program manager|project manager|scrum master|agile',
-  "Retail / Store": 'store manager|store associate|cashier|retail|merchandising|grocery|clerk',
-  "Finance": 'finance|accountant|accounting|financial analyst|controller',
-  "Data & Analytics": 'data scientist|data analyst|data engineer|analytics|business intelligence',
-  "HR / Recruiting": 'hr|recruiter|talent|people|human resources',
-  "QA / Testing": 'qa|quality|test engineer|tester|automation engineer',
-  "DevOps / Cloud": 'devops|sre|site reliability|platform engineer|infrastructure|cloud engineer',
-  "Customer Success": 'customer service|customer success|account manager',
-  "Food & Hospitality": 'cook|dishwasher|server|host|bartend|restaurant|food|barista',
-  "AI / Machine Learning": 'machine learning|ml engineer|ai engineer|deep learning|nlp|computer vision',
-  "Warehouse / Logistics": 'warehouse|logistics|supply chain|shipping|forklift|distribution',
-  "Cybersecurity": 'cyber|security engineer|security analyst|infosec|penetration|soc analyst',
-  "Mobile Dev": 'mobile|ios|android|react native|flutter',
-  "Operations": 'operations manager|operations|general manager',
-};
-
 const PAGE_SIZE = 30;
 
 export async function searchJobs(params: SearchParams) {
@@ -74,9 +51,9 @@ export async function searchJobs(params: SearchParams) {
       const args: (string | number)[] = [tsQuery + ":*"];
       let paramIdx = 2;
 
-      if (params.category && CATEGORY_PATTERNS[params.category]) {
-        conditions.push(`LOWER(title) ~ $${paramIdx++}`);
-        args.push(CATEGORY_PATTERNS[params.category]);
+      if (params.category) {
+        conditions.push(`category = $${paramIdx++}`);
+        args.push(params.category);
       }
       if (params.source) {
         conditions.push(`source = $${paramIdx++}`);
@@ -133,9 +110,9 @@ export async function searchJobs(params: SearchParams) {
     const args: (string | number)[] = [];
     let paramIdx = 1;
 
-    if (params.category && CATEGORY_PATTERNS[params.category]) {
-      conditions.push(`LOWER(title) ~ $${paramIdx++}`);
-      args.push(CATEGORY_PATTERNS[params.category]);
+    if (params.category) {
+      conditions.push(`category = $${paramIdx++}`);
+      args.push(params.category);
     }
     if (params.source) {
       conditions.push(`source = $${paramIdx++}`);
@@ -193,51 +170,20 @@ export function getStats() {
         (SELECT COUNT(DISTINCT company) FROM jobs) as total_companies,
         (SELECT COUNT(*) FROM jobs WHERE scraped_at::date = CURRENT_DATE) as today_jobs
     `);
-    const platformResult = await pool.query(
-      "SELECT source, COUNT(*) as count FROM jobs GROUP BY source ORDER BY count DESC"
-    );
 
     return {
       totalJobs: Number(result.rows[0].total_jobs),
       totalCompanies: Number(result.rows[0].total_companies),
       todayJobs: Number(result.rows[0].today_jobs),
-      platforms: platformResult.rows as { source: string; count: number }[],
     };
   });
 }
 
 export function getCategoryStats() {
   return cached("category-stats", 300, async () => {
-    const result = await pool.query(`
-      SELECT category, COUNT(*) as count FROM (
-        SELECT CASE
-          WHEN LOWER(title) ~ 'software engineer|software developer|swe|sde|full.?stack|backend|frontend|web developer' THEN 'Software Engineering'
-          WHEN LOWER(title) ~ 'data scientist|data analyst|data engineer|analytics|business intelligence' THEN 'Data & Analytics'
-          WHEN LOWER(title) ~ 'machine learning|ml engineer|ai engineer|deep learning|nlp|computer vision' THEN 'AI / Machine Learning'
-          WHEN LOWER(title) ~ 'devops|sre|site reliability|platform engineer|infrastructure|cloud engineer' THEN 'DevOps / Cloud'
-          WHEN LOWER(title) ~ 'cyber|security engineer|security analyst|infosec|penetration|soc analyst' THEN 'Cybersecurity'
-          WHEN LOWER(title) ~ 'product manager|program manager|project manager|scrum master|agile' THEN 'Product & Program'
-          WHEN LOWER(title) ~ 'designer|ux|ui|user experience|user interface|graphic design' THEN 'Design / UX'
-          WHEN LOWER(title) ~ 'marketing|growth|seo|content|brand|social media' THEN 'Marketing'
-          WHEN LOWER(title) ~ 'sales|account executive|business development|bdr|sdr' THEN 'Sales'
-          WHEN LOWER(title) ~ 'finance|accountant|accounting|financial analyst|controller' THEN 'Finance'
-          WHEN LOWER(title) ~ 'nurse|doctor|medical|clinical|health|pharma|biotech|therapist|counselor' THEN 'Healthcare'
-          WHEN LOWER(title) ~ 'support|helpdesk|help desk|it specialist|system admin|sysadmin|technician' THEN 'IT / Support'
-          WHEN LOWER(title) ~ 'hr|recruiter|talent|people|human resources' THEN 'HR / Recruiting'
-          WHEN LOWER(title) ~ 'qa|quality|test engineer|tester|automation engineer' THEN 'QA / Testing'
-          WHEN LOWER(title) ~ 'mobile|ios|android|react native|flutter' THEN 'Mobile Dev'
-          WHEN LOWER(title) ~ 'store manager|store associate|cashier|retail|merchandising|grocery|clerk' THEN 'Retail / Store'
-          WHEN LOWER(title) ~ 'cook|dishwasher|server|host|bartend|restaurant|food|barista' THEN 'Food & Hospitality'
-          WHEN LOWER(title) ~ 'warehouse|logistics|supply chain|shipping|forklift|distribution' THEN 'Warehouse / Logistics'
-          WHEN LOWER(title) ~ 'customer service|customer success|account manager' THEN 'Customer Success'
-          WHEN LOWER(title) ~ 'operations manager|operations|general manager' THEN 'Operations'
-          ELSE 'Other'
-        END as category
-        FROM jobs
-      ) sub
-      GROUP BY category
-      ORDER BY count DESC
-    `);
+    const result = await pool.query(
+      "SELECT category, COUNT(*) as count FROM jobs WHERE category IS NOT NULL GROUP BY category ORDER BY count DESC"
+    );
     return result.rows as { category: string; count: number }[];
   });
 }
