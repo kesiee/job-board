@@ -18,6 +18,7 @@ export default async function JobsPage({
 }) {
   const params = await searchParams;
   const q = typeof params.q === "string" ? params.q : undefined;
+  const category = typeof params.category === "string" ? params.category : undefined;
   const source = typeof params.source === "string" ? params.source : undefined;
   const location = typeof params.location === "string" ? params.location : undefined;
   const company = typeof params.company === "string" ? params.company : undefined;
@@ -25,12 +26,13 @@ export default async function JobsPage({
   const page = typeof params.page === "string" ? parseInt(params.page) : 1;
 
   const [{ jobs, total, totalPages }, sources] = await Promise.all([
-    searchJobs({ q, source, location, company, sort, page }),
+    searchJobs({ q, category, source, location, company, sort, page }),
     getSources(),
   ]);
 
   const currentParams: Record<string, string> = {};
   if (q) currentParams.q = q;
+  if (category) currentParams.category = category;
   if (source) currentParams.source = source;
   if (location) currentParams.location = location;
   if (company) currentParams.company = company;
@@ -42,6 +44,7 @@ export default async function JobsPage({
         <h1 className="text-2xl font-bold text-gray-900">Jobs</h1>
         <p className="text-sm text-gray-500">
           {formatNumber(total)} results
+          {category && <> in {category}</>}
           {q && <> for &quot;{q}&quot;</>}
         </p>
       </div>

@@ -1,5 +1,6 @@
-import { getStats } from "@/lib/queries";
-import { formatNumber, platformColor } from "@/lib/utils";
+import { getStats, getCategoryStats } from "@/lib/queries";
+import { formatNumber } from "@/lib/utils";
+import Link from "next/link";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -9,8 +10,14 @@ export const metadata: Metadata = {
 
 export const revalidate = 300;
 
+
 export default async function StatsPage() {
-  const stats = await getStats();
+  const [stats, categories] = await Promise.all([
+    getStats(),
+    getCategoryStats(),
+  ]);
+
+  const maxCount = categories[0]?.count || 1;
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8">
@@ -41,30 +48,36 @@ export default async function StatsPage() {
       </div>
 
       <h2 className="mt-12 text-lg font-semibold text-gray-900">
-        Jobs by Platform
+        Jobs by Category
       </h2>
       <div className="mt-4 space-y-3">
-        {stats.platforms.map((p) => {
-          const pct = Math.round((p.count / stats.totalJobs) * 100);
-          return (
-            <div key={p.source} className="rounded-lg border border-gray-200 bg-white p-4">
+        {categories.map((cat) => {
+          const pct = Math.round((cat.count / stats.totalJobs) * 100);
+          const barPct = Math.round((cat.count / maxCount) * 100);
+          const inner = (
+            <div className="rounded-lg border border-gray-200 bg-white p-4">
               <div className="flex items-center justify-between">
-                <span
-                  className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${platformColor(p.source)}`}
-                >
-                  {p.source || "unknown"}
-                </span>
                 <span className="text-sm font-medium text-gray-900">
-                  {formatNumber(p.count)} ({pct}%)
+                  {cat.category}
+                </span>
+                <span className="text-sm text-gray-500">
+                  {formatNumber(cat.count)} ({pct}%)
                 </span>
               </div>
               <div className="mt-2 h-2 w-full rounded-full bg-gray-100">
                 <div
                   className="h-2 rounded-full bg-blue-500"
-                  style={{ width: `${pct}%` }}
+                  style={{ width: `${barPct}%` }}
                 />
               </div>
             </div>
+          );
+          return cat.category !== "Other" ? (
+            <Link key={cat.category} href={`/jobs?category=${encodeURIComponent(cat.category)}`}>
+              {inner}
+            </Link>
+          ) : (
+            <div key={cat.category}>{inner}</div>
           );
         })}
       </div>
