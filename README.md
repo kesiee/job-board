@@ -40,7 +40,7 @@ A free, public job board aggregating 200,000+ positions from 16,500+ companies a
 
 ```bash
 # Clone the repo
-git clone https://github.com/shashankkesiee/job-board.git
+git clone https://github.com/kesiee/job-board.git
 cd job-board
 
 # Install dependencies
