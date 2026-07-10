@@ -22,11 +22,11 @@ export const metadata: Metadata = {
     template: "%s | JobHunt",
   },
   description:
-    "Search 200,000+ jobs from Greenhouse, Lever, Workday, and more. Updated every few hours.",
+    "Search 1.5 million+ jobs from Greenhouse, Lever, Workday, and more. Updated every few hours.",
   openGraph: {
     title: "JobHunt — Every open role. One search.",
     description:
-      "Search 200,000+ jobs from Greenhouse, Lever, Workday, and more.",
+      "Search 1.5 million+ jobs from Greenhouse, Lever, Workday, and more.",
     type: "website",
   },
 };

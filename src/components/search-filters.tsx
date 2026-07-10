@@ -2,8 +2,13 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState, useTransition } from "react";
+import { countryName } from "@/lib/utils";
 
-export function SearchFilters() {
+export function SearchFilters({
+  countries = [],
+}: {
+  countries?: { country: string; count: number }[];
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
@@ -40,6 +45,8 @@ export function SearchFilters() {
     updateParams({ q, location, company });
   };
 
+  const remoteActive = searchParams.get("remote") === "1";
+
   return (
     <div className="flex flex-col gap-3">
       <div className="flex gap-2">
@@ -64,7 +71,7 @@ export function SearchFilters() {
         </button>
       </div>
 
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3 sm:flex-wrap">
         <input
           type="text"
           placeholder="Location..."
@@ -83,6 +90,21 @@ export function SearchFilters() {
           className="rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-700 placeholder-gray-400 focus:border-blue-500 focus:outline-none sm:w-40"
         />
 
+        {countries.length > 0 && (
+          <select
+            value={searchParams.get("country") || ""}
+            onChange={(e) => updateParams({ country: e.target.value })}
+            className="rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-700 focus:border-blue-500 focus:outline-none sm:w-44"
+          >
+            <option value="">All countries</option>
+            {countries.map((c) => (
+              <option key={c.country} value={c.country}>
+                {countryName(c.country)}
+              </option>
+            ))}
+          </select>
+        )}
+
         <select
           value={searchParams.get("sort") || "newest"}
           onChange={(e) => updateParams({ sort: e.target.value })}
@@ -91,6 +113,17 @@ export function SearchFilters() {
           <option value="newest">Newest first</option>
           <option value="company">Company A-Z</option>
         </select>
+
+        <button
+          onClick={() => updateParams({ remote: remoteActive ? "" : "1" })}
+          className={`rounded-lg border px-3 py-2.5 text-sm font-medium focus:outline-none ${
+            remoteActive
+              ? "border-blue-600 bg-blue-600 text-white hover:bg-blue-700"
+              : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+          }`}
+        >
+          Remote only
+        </button>
       </div>
     </div>
   );

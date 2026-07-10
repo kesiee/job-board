@@ -1,4 +1,4 @@
-import { pool, ensureAnalyticsTables } from "./db";
+import { pool } from "./db";
 import { cached } from "./cache";
 
 export interface Job {
@@ -12,6 +12,17 @@ export interface Job {
   ats_slug: string | null;
   date_posted: string | null;
   scraped_at: string | null;
+  last_seen_at: string | null;
+  is_remote: boolean | null;
+  salary_min: number | null;
+  salary_max: number | null;
+  salary_currency: string | null;
+  seniority: string | null;
+  employment_type: string | null;
+  department: string | null;
+  workplace_type: string | null;
+  location_display: string | null;
+  posted_at: string | null;
 }
 
 export interface SearchParams {
@@ -20,18 +31,56 @@ export interface SearchParams {
   source?: string;
   location?: string;
   company?: string;
+  country?: string;
+  remote?: boolean;
   sort?: string;
   page?: number;
 }
 
 const PAGE_SIZE = 30;
 
+const CARD_COLUMNS =
+  "id, title, company, url, location, source, date_posted, scraped_at, is_remote, salary_min, salary_max, salary_currency";
+
+function buildFilters(
+  params: SearchParams,
+  conditions: string[],
+  args: (string | number | boolean)[],
+  startIdx: number
+): number {
+  let paramIdx = startIdx;
+  if (params.category) {
+    conditions.push(`category = $${paramIdx++}`);
+    args.push(params.category);
+  }
+  if (params.source) {
+    conditions.push(`source = $${paramIdx++}`);
+    args.push(params.source);
+  }
+  if (params.location) {
+    conditions.push(`location ILIKE $${paramIdx++}`);
+    args.push(`%${params.location}%`);
+  }
+  if (params.company) {
+    conditions.push(`company ILIKE $${paramIdx++}`);
+    args.push(`%${params.company}%`);
+  }
+  if (params.country) {
+    conditions.push(`location_country = $${paramIdx++}`);
+    args.push(params.country);
+  }
+  if (params.remote) {
+    conditions.push(`is_remote = true`);
+  }
+  return paramIdx;
+}
+
 export async function searchJobs(params: SearchParams) {
   const page = Math.max(1, params.page || 1);
   const offset = (page - 1) * PAGE_SIZE;
 
   const cacheKey = `search:${JSON.stringify(params)}`;
-  return cached(cacheKey, 60, async () => {
+  const result = await cached(cacheKey, 60, async () => {
     if (params.q) {
       // Postgres full-text search
       const tsQuery = params.q
@@ -48,25 +97,8 @@ export async function searchJobs(params: SearchParams) {
       const conditions: string[] = [
         `description_tsv @@ to_tsquery('english', $1)`
       ];
-      const args: (string | number)[] = [tsQuery + ":*"];
-      let paramIdx = 2;
-
-      if (params.category) {
-        conditions.push(`category = $${paramIdx++}`);
-        args.push(params.category);
-      }
-      if (params.source) {
-        conditions.push(`source = $${paramIdx++}`);
-        args.push(params.source);
-      }
-      if (params.location) {
-        conditions.push(`location ILIKE $${paramIdx++}`);
-        args.push(`%${params.location}%`);
-      }
-      if (params.company) {
-        conditions.push(`company ILIKE $${paramIdx++}`);
-        args.push(`%${params.company}%`);
-      }
+      const args: (string | number | boolean)[] = [tsQuery + ":*"];
+      const paramIdx = buildFilters(params, conditions, args, 2);
 
       const where = `WHERE ${conditions.join(" AND ")}`;
       const orderBy =
@@ -86,7 +118,7 @@ export async function searchJobs(params: SearchParams) {
       const [countResult, jobsResult] = await Promise.all([
         pool.query(`SELECT COUNT(*) as total FROM jobs ${where}`, args),
         pool.query(
-          `SELECT id, title, company, url, location, source, date_posted, scraped_at
+          `SELECT ${CARD_COLUMNS}
            FROM jobs ${where}
            ORDER BY ${orderBy}
            LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
@@ -95,7 +127,6 @@ export async function searchJobs(params: SearchParams) {
       ]);
 
       const total = Number(countResult.rows[0].total);
-      logSearch(params, total);
 
       return {
         jobs: jobsResult.rows as Job[],
@@ -107,25 +138,8 @@ export async function searchJobs(params: SearchParams) {
 
     // No text query — regular SQL with filters
     const conditions: string[] = [];
-    const args: (string | number)[] = [];
-    let paramIdx = 1;
-
-    if (params.category) {
-      conditions.push(`category = $${paramIdx++}`);
-      args.push(params.category);
-    }
-    if (params.source) {
-      conditions.push(`source = $${paramIdx++}`);
-      args.push(params.source);
-    }
-    if (params.location) {
-      conditions.push(`location ILIKE $${paramIdx++}`);
-      args.push(`%${params.location}%`);
-    }
-    if (params.company) {
-      conditions.push(`company ILIKE $${paramIdx++}`);
-      args.push(`%${params.company}%`);
-    }
+    const args: (string | number | boolean)[] = [];
+    let paramIdx = buildFilters(params, conditions, args, 1);
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
     const orderBy =
@@ -134,7 +148,7 @@ export async function searchJobs(params: SearchParams) {
     const [countResult, jobsResult] = await Promise.all([
       pool.query(`SELECT COUNT(*) as total FROM jobs ${where}`, args),
       pool.query(
-        `SELECT id, title, company, url, location, source, date_posted, scraped_at
+        `SELECT ${CARD_COLUMNS}
          FROM jobs ${where}
          ORDER BY ${orderBy}
          LIMIT $${paramIdx++} OFFSET $${paramIdx}`,
@@ -144,10 +158,6 @@ export async function searchJobs(params: SearchParams) {
 
     const total = Number(countResult.rows[0].total);
 
-    if (params.source || params.location || params.company) {
-      logSearch(params, total);
-    }
-
     return {
       jobs: jobsResult.rows as Job[],
       total,
@@ -155,10 +165,26 @@ export async function searchJobs(params: SearchParams) {
       totalPages: Math.ceil(total / PAGE_SIZE),
     };
   });
+
+  // Log outside the cache so repeat searches within the TTL are still counted
+  if (params.q || params.source || params.location || params.company) {
+    logSearch(params, result.total);
+  }
+
+  return result;
 }
 
 export async function getJob(id: number) {
-  const result = await pool.query("SELECT * FROM jobs WHERE id = $1", [id]);
+  if (!Number.isInteger(id)) return null;
+  const result = await pool.query(
+    `SELECT id, title, company, url, description, location, source, ats_slug,
+            date_posted, scraped_at, last_seen_at, is_remote,
+            salary_min, salary_max, salary_currency,
+            seniority, employment_type, department, workplace_type,
+            location_display, posted_at
+     FROM jobs WHERE id = $1`,
+    [id]
+  );
   return (result.rows[0] as Job) || null;
 }
 
@@ -197,6 +223,17 @@ export function getSources() {
   });
 }
 
+export function getCountries() {
+  return cached("countries", 3600, async () => {
+    const result = await pool.query(
+      `SELECT location_country as country, COUNT(*) as count
+       FROM jobs WHERE location_country IS NOT NULL
+       GROUP BY location_country ORDER BY count DESC LIMIT 40`
+    );
+    return result.rows as { country: string; count: number }[];
+  });
+}
+
 export function getCompanies(letter?: string) {
   const cacheKey = `companies:${letter || "all"}`;
   return cached(cacheKey, 600, async () => {
@@ -230,50 +267,44 @@ interface PageViewData {
 
 export function logPageView(data: PageViewData) {
   // Fire and forget — don't await
-  ensureAnalyticsTables()
-    .then(() =>
-      pool.query(
-        `INSERT INTO page_views (visitor_id, path, referrer, user_agent, ip_hash, country, city, device, is_unique)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
-           NOT EXISTS(SELECT 1 FROM page_views WHERE visitor_id = $1 LIMIT 1))`,
-        [
-          data.visitorId,
-          data.path,
-          data.referrer,
-          data.userAgent,
-          data.ipHash,
-          data.country,
-          data.city,
-          data.device,
-        ]
-      )
+  pool
+    .query(
+      `INSERT INTO page_views (visitor_id, path, referrer, user_agent, ip_hash, country, city, device, is_unique)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+         NOT EXISTS(SELECT 1 FROM page_views WHERE visitor_id = $1 LIMIT 1))`,
+      [
+        data.visitorId,
+        data.path,
+        data.referrer,
+        data.userAgent,
+        data.ipHash,
+        data.country,
+        data.city,
+        data.device,
+      ]
     )
     .catch(() => {});
 }
 
 export function logSearch(params: SearchParams, resultsCount: number, visitorId?: string) {
   // Fire and forget
-  ensureAnalyticsTables()
-    .then(() =>
-      pool.query(
-        `INSERT INTO search_logs (visitor_id, query, source_filter, location_filter, company_filter, results_count)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [
-          visitorId || "anonymous",
-          params.q || null,
-          params.source || null,
-          params.location || null,
-          params.company || null,
-          resultsCount,
-        ]
-      )
+  pool
+    .query(
+      `INSERT INTO search_logs (visitor_id, query, source_filter, location_filter, company_filter, results_count)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        visitorId || "anonymous",
+        params.q || null,
+        params.source || null,
+        params.location || null,
+        params.company || null,
+        resultsCount,
+      ]
     )
     .catch(() => {});
 }
 
 export async function getAnalytics(days: number = 30) {
-  await ensureAnalyticsTables();
-
   // Consolidated into 4 queries using CTEs instead of 17 parallel queries
   const [pvStats, pvDaily, searchStats, searchRecent] = await Promise.all([
     // Page view aggregates in one query

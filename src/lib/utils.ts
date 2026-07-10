@@ -29,6 +29,37 @@ export function platformColor(source: string | null): string {
   return colors[source || ""] || "bg-gray-100 text-gray-800";
 }
 
+export function formatSalary(
+  min: number | null,
+  max: number | null,
+  currency: string | null
+): string | null {
+  if (!min && !max) return null;
+  const cur = currency || "USD";
+  const fmt = (n: number) =>
+    new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: cur,
+      maximumFractionDigits: 0,
+      notation: n >= 10_000 ? "compact" : "standard",
+    }).format(n);
+  if (min && max && min !== max) return `${fmt(min)}–${fmt(max)}`;
+  return fmt((min || max) as number);
+}
+
+export function countryName(code: string): string {
+  try {
+    return new Intl.DisplayNames(["en"], { type: "region" }).of(code) || code;
+  } catch {
+    return code;
+  }
+}
+
+export function isStale(lastSeenAt: string | null, days = 7): boolean {
+  if (!lastSeenAt) return false;
+  return Date.now() - new Date(lastSeenAt).getTime() > days * 86400_000;
+}
+
 export function formatNumber(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;

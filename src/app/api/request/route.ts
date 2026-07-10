@@ -1,21 +1,17 @@
-import { pool, ensureAnalyticsTables } from "@/lib/db";
+import { pool } from "@/lib/db";
 import { NextResponse } from "next/server";
 
-let requestTableInitialized = false;
-
-async function ensureRequestTable() {
-  if (requestTableInitialized) return;
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS requests (
-      id SERIAL PRIMARY KEY,
-      type TEXT NOT NULL,
-      detail TEXT NOT NULL,
-      email TEXT,
-      created_at TIMESTAMPTZ DEFAULT NOW()
-    )
-  `);
-  requestTableInitialized = true;
-}
+// The `requests` table must be created by a DB admin (the app user has no DDL
+// privileges):
+//   CREATE TABLE requests (
+//     id SERIAL PRIMARY KEY,
+//     type TEXT NOT NULL,
+//     detail TEXT NOT NULL,
+//     email TEXT,
+//     created_at TIMESTAMPTZ DEFAULT NOW()
+//   );
+//   GRANT INSERT ON requests TO jobboard;
+//   GRANT USAGE ON SEQUENCE requests_id_seq TO jobboard;
 
 export async function POST(req: Request) {
   try {
@@ -29,7 +25,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Detail too long" }, { status: 400 });
     }
 
-    await ensureRequestTable();
     await pool.query(
       "INSERT INTO requests (type, detail, email) VALUES ($1, $2, $3)",
       [type, detail.slice(0, 2000), email || null]

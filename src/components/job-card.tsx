@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { Job } from "@/lib/queries";
-import { timeAgo } from "@/lib/utils";
+import { timeAgo, formatSalary } from "@/lib/utils";
 
 export function JobCard({ job }: { job: Job }) {
+  const salary = formatSalary(job.salary_min, job.salary_max, job.salary_currency);
+
   return (
     <div className="border-b border-gray-100 py-3 px-1 hover:bg-gray-50 transition-colors">
       <div className="flex items-start justify-between gap-3">
@@ -20,6 +22,16 @@ export function JobCard({ job }: { job: Job }) {
                 <span className="text-gray-300">|</span>
                 <span className="line-clamp-1">{job.location}</span>
               </>
+            )}
+            {job.is_remote && (
+              <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                Remote
+              </span>
+            )}
+            {salary && (
+              <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
+                {salary}
+              </span>
             )}
           </div>
         </div>

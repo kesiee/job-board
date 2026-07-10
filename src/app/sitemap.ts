@@ -2,7 +2,7 @@ import { pool } from "@/lib/db";
 import type { MetadataRoute } from "next";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const baseUrl = "https://jobhunt.vercel.app";
+  const baseUrl = "https://job-board-kesiee.vercel.app";
 
   const staticPages: MetadataRoute.Sitemap = [
     { url: baseUrl, changeFrequency: "daily", priority: 1 },

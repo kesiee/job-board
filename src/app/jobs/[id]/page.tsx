@@ -1,6 +1,6 @@
 import { getJob } from "@/lib/queries";
 import { notFound } from "next/navigation";
-import { timeAgo } from "@/lib/utils";
+import { timeAgo, formatSalary, isStale } from "@/lib/utils";
 import { BackToJobs } from "@/components/back-to-jobs";
 import type { Metadata } from "next";
 
@@ -31,11 +31,21 @@ export default async function JobPage({
   const job = await getJob(parseInt(id));
   if (!job) notFound();
 
+  const salary = formatSalary(job.salary_min, job.salary_max, job.salary_currency);
+  const possiblyClosed = isStale(job.last_seen_at);
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">
       <BackToJobs />
 
       <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        {possiblyClosed && (
+          <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            This listing hasn&apos;t been seen on the company&apos;s careers page
+            recently and may be closed.
+          </div>
+        )}
+
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{job.title}</h1>
@@ -52,9 +62,34 @@ export default async function JobPage({
         </div>
 
         <div className="mt-4 flex flex-wrap gap-3">
-          {job.location && (
+          {(job.location_display || job.location) && (
             <span className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700">
-              {job.location}
+              {job.location_display || job.location}
+            </span>
+          )}
+          {job.is_remote && (
+            <span className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-700">
+              Remote
+            </span>
+          )}
+          {salary && (
+            <span className="inline-flex items-center rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700">
+              {salary}
+            </span>
+          )}
+          {job.employment_type && (
+            <span className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700">
+              {job.employment_type}
+            </span>
+          )}
+          {job.seniority && (
+            <span className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700">
+              {job.seniority}
+            </span>
+          )}
+          {job.department && (
+            <span className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700">
+              {job.department}
             </span>
           )}
           {job.date_posted && (

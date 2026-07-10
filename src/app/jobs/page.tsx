@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { searchJobs } from "@/lib/queries";
+import { searchJobs, getCountries } from "@/lib/queries";
 import { SearchFilters } from "@/components/search-filters";
 import { JobCard } from "@/components/job-card";
 import { Pagination } from "@/components/pagination";
@@ -8,7 +8,7 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "Browse Jobs",
-  description: "Search and filter through 200,000+ open positions from top companies.",
+  description: "Search and filter through 1.5 million+ open positions from top companies.",
 };
 
 export default async function JobsPage({
@@ -22,10 +22,15 @@ export default async function JobsPage({
   const source = typeof params.source === "string" ? params.source : undefined;
   const location = typeof params.location === "string" ? params.location : undefined;
   const company = typeof params.company === "string" ? params.company : undefined;
+  const country = typeof params.country === "string" ? params.country : undefined;
+  const remote = params.remote === "1";
   const sort = typeof params.sort === "string" ? params.sort : undefined;
   const page = typeof params.page === "string" ? parseInt(params.page) : 1;
 
-  const { jobs, total, totalPages } = await searchJobs({ q, category, source, location, company, sort, page });
+  const [{ jobs, total, totalPages }, countries] = await Promise.all([
+    searchJobs({ q, category, source, location, company, country, remote, sort, page }),
+    getCountries(),
+  ]);
 
   const currentParams: Record<string, string> = {};
   if (q) currentParams.q = q;
@@ -33,6 +38,8 @@ export default async function JobsPage({
   if (source) currentParams.source = source;
   if (location) currentParams.location = location;
   if (company) currentParams.company = company;
+  if (country) currentParams.country = country;
+  if (remote) currentParams.remote = "1";
   if (sort) currentParams.sort = sort;
 
   return (
@@ -43,11 +50,12 @@ export default async function JobsPage({
           {formatNumber(total)} results
           {category && <> in {category}</>}
           {q && <> for &quot;{q}&quot;</>}
+          {remote && <> (remote)</>}
         </p>
       </div>
 
       <Suspense fallback={null}>
-        <SearchFilters />
+        <SearchFilters countries={countries} />
       </Suspense>
 
       <div className="mt-6">
