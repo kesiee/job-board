@@ -41,6 +41,18 @@ export interface SearchParams {
 
 const PAGE_SIZE = 30;
 
+// Exact COUNT(*) over matches costs 100ms-6s on big result sets; nobody
+// pages past a few hundred results. Cap the count scan — the UI can show
+// "5,000+" when total hits the cap.
+const COUNT_CAP = 5000;
+
+function cappedCount(where: string, args: (string | number | boolean)[]) {
+  return pool.query(
+    `SELECT COUNT(*) as total FROM (SELECT 1 FROM jobs ${where} LIMIT ${COUNT_CAP}) t`,
+    args
+  );
+}
+
 const CARD_COLUMNS =
   "id, title, company, url, location, source, date_posted, scraped_at, is_remote, salary_min, salary_max, salary_currency";
 
@@ -118,7 +130,7 @@ export async function searchJobs(params: SearchParams) {
       const offsetIdx = paramIdx + 2;
 
       const [countResult, jobsResult] = await Promise.all([
-        pool.query(`SELECT COUNT(*) as total FROM jobs ${where}`, args),
+        cappedCount(where, args),
         pool.query(
           `SELECT ${CARD_COLUMNS}
            FROM jobs ${where}
@@ -152,7 +164,7 @@ export async function searchJobs(params: SearchParams) {
       // expensive query on the page — reuse the cached stats total instead
       conditions.length === 0
         ? getStats().then((s) => ({ rows: [{ total: s.totalJobs }] }))
-        : pool.query(`SELECT COUNT(*) as total FROM jobs ${where}`, args),
+        : cappedCount(where, args),
       pool.query(
         `SELECT ${CARD_COLUMNS}
          FROM jobs ${where}
@@ -217,10 +229,13 @@ export function getStats() {
   return cached("stats", 300, async () => {
     const result = await pool.query(`
       SELECT
-        (SELECT COUNT(*) FROM jobs) as total_jobs,
+        -- planner estimate: instant and accurate enough for a marketing number
+        (SELECT reltuples::bigint FROM pg_class WHERE relname = 'jobs') as total_jobs,
         (SELECT COUNT(DISTINCT company) FROM jobs) as total_companies,
-        (SELECT COUNT(*) FROM jobs WHERE scraped_at::date = CURRENT_DATE) as today_jobs,
-        (SELECT COUNT(*) FROM jobs WHERE scraped_at::date = CURRENT_DATE - 1) as yesterday_jobs
+        -- range predicates (not ::date casts) so idx_jobs_scraped is usable
+        (SELECT COUNT(*) FROM jobs WHERE scraped_at >= CURRENT_DATE) as today_jobs,
+        (SELECT COUNT(*) FROM jobs
+          WHERE scraped_at >= CURRENT_DATE - 1 AND scraped_at < CURRENT_DATE) as yesterday_jobs
     `);
 
     return {
