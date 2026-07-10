@@ -35,24 +35,30 @@ export default async function Home() {
         </div>
       </form>
 
-      <div className="mt-12 grid gap-4 sm:grid-cols-3">
+      <div className="mt-12 grid grid-cols-2 gap-4 sm:grid-cols-4">
         <div className="rounded-xl border border-gray-200 bg-white p-6 text-center shadow-sm">
-          <p className="text-4xl font-bold text-gray-900">
+          <p className="text-3xl font-bold text-gray-900">
             {formatNumber(stats.totalJobs)}
           </p>
           <p className="mt-1 text-sm text-gray-500">Total Jobs</p>
         </div>
         <div className="rounded-xl border border-gray-200 bg-white p-6 text-center shadow-sm">
-          <p className="text-4xl font-bold text-gray-900">
+          <p className="text-3xl font-bold text-gray-900">
             {formatNumber(stats.totalCompanies)}
           </p>
           <p className="mt-1 text-sm text-gray-500">Companies</p>
         </div>
         <div className="rounded-xl border border-gray-200 bg-white p-6 text-center shadow-sm">
-          <p className="text-4xl font-bold text-green-600">
+          <p className="text-3xl font-bold text-green-600">
             +{formatNumber(stats.todayJobs)}
           </p>
           <p className="mt-1 text-sm text-gray-500">Added Today</p>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-6 text-center shadow-sm">
+          <p className="text-3xl font-bold text-green-600">
+            +{formatNumber(stats.yesterdayJobs)}
+          </p>
+          <p className="mt-1 text-sm text-gray-500">Added Yesterday</p>
         </div>
       </div>
 

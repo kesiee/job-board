@@ -55,10 +55,19 @@ export default async function AdminPage({
       </div>
 
       {/* Overview cards */}
-      <div className="mt-8 grid gap-4 grid-cols-2 lg:grid-cols-5">
+      <div className="mt-8 grid gap-4 grid-cols-2 lg:grid-cols-6">
         <Card label="Page Views" value={data.totalViews} />
         <Card label="Unique Visitors" value={data.uniqueVisitors} highlight />
         <Card label="Returning Visitors" value={data.returningVisitors} />
+        <Card
+          label="Bounce Rate"
+          value={
+            data.uniqueVisitors > 0
+              ? Math.round((data.bouncedVisitors / data.uniqueVisitors) * 100)
+              : 0
+          }
+          suffix="%"
+        />
         <Card label="Avg Pages/Visit" value={data.avgPagesPerVisitor} decimal />
         <Card label="Total Searches" value={totalSearches} />
       </div>
@@ -245,6 +254,97 @@ export default async function AdminPage({
         </Section>
       </div>
 
+      {/* Content performance */}
+      <div className="mt-8 grid gap-8 md:grid-cols-2">
+        <Section title="Most Viewed Jobs">
+          {data.topViewedJobs.length === 0 ? (
+            <Empty />
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-gray-500">
+                  <th className="pb-2 font-medium">Job</th>
+                  <th className="pb-2 font-medium text-right">Views</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.topViewedJobs.map((j) => (
+                  <tr key={j.job_id} className="border-b border-gray-50">
+                    <td className="py-1.5 text-gray-700">
+                      {j.title ? (
+                        <a
+                          href={`/jobs/${j.job_id}`}
+                          className="hover:text-blue-600"
+                          target="_blank"
+                        >
+                          {j.title}
+                          <span className="ml-1 text-xs text-gray-400">
+                            {j.company}
+                          </span>
+                        </a>
+                      ) : (
+                        <span className="text-gray-400">
+                          #{j.job_id} (removed)
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-1.5 text-right font-medium">{j.views}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </Section>
+
+        <Section title="Most Viewed Companies">
+          {data.topViewedCompanies.length === 0 ? (
+            <Empty />
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-gray-500">
+                  <th className="pb-2 font-medium">Company</th>
+                  <th className="pb-2 font-medium text-right">Job Views</th>
+                  <th className="pb-2 font-medium text-right">Jobs Viewed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.topViewedCompanies.map((c) => (
+                  <tr key={c.company} className="border-b border-gray-50">
+                    <td className="py-1.5 text-gray-700">{c.company}</td>
+                    <td className="py-1.5 text-right font-medium">{c.views}</td>
+                    <td className="py-1.5 text-right text-gray-500">
+                      {c.jobs_viewed}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </Section>
+      </div>
+
+      {/* Unmet demand */}
+      <Section title="Zero-Result Searches (unmet demand)">
+        {data.zeroResultSearches.length === 0 ? (
+          <Empty label="No failed searches — nice" />
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {data.zeroResultSearches.map((s) => (
+              <span
+                key={s.query}
+                className="inline-flex items-center gap-1.5 rounded-full bg-red-50 px-3 py-1.5 text-sm"
+              >
+                <span className="text-gray-800">{s.query}</span>
+                <span className="rounded-full bg-red-200 px-1.5 py-0.5 text-xs font-medium text-red-800">
+                  {s.count}
+                </span>
+              </span>
+            ))}
+          </div>
+        )}
+      </Section>
+
       {/* Search analytics */}
       <Section title="Top Search Queries">
         {data.topSearches.length === 0 ? (
@@ -357,11 +457,13 @@ function Card({
   value,
   highlight,
   decimal,
+  suffix = "",
 }: {
   label: string;
   value: number;
   highlight?: boolean;
   decimal?: boolean;
+  suffix?: string;
 }) {
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
@@ -369,7 +471,7 @@ function Card({
         {label}
       </p>
       <p className={`mt-1 text-3xl font-bold ${highlight ? "text-blue-600" : "text-gray-900"}`}>
-        {decimal ? value : value.toLocaleString()}
+        {decimal ? value : value.toLocaleString()}{suffix}
       </p>
     </div>
   );

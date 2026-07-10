@@ -194,13 +194,63 @@ export function getStats() {
       SELECT
         (SELECT COUNT(*) FROM jobs) as total_jobs,
         (SELECT COUNT(DISTINCT company) FROM jobs) as total_companies,
-        (SELECT COUNT(*) FROM jobs WHERE scraped_at::date = CURRENT_DATE) as today_jobs
+        (SELECT COUNT(*) FROM jobs WHERE scraped_at::date = CURRENT_DATE) as today_jobs,
+        (SELECT COUNT(*) FROM jobs WHERE scraped_at::date = CURRENT_DATE - 1) as yesterday_jobs
     `);
 
     return {
       totalJobs: Number(result.rows[0].total_jobs),
       totalCompanies: Number(result.rows[0].total_companies),
       todayJobs: Number(result.rows[0].today_jobs),
+      yesterdayJobs: Number(result.rows[0].yesterday_jobs),
+    };
+  });
+}
+
+export function getInsights() {
+  return cached("insights", 300, async () => {
+    // Sequential on purpose: five parallel full-table aggregates contend on the
+    // small DB instance and can trip its 10s statement_timeout
+    const daily = await pool.query(
+      `SELECT scraped_at::date::text as day, COUNT(*) as count
+       FROM jobs WHERE scraped_at >= NOW() - INTERVAL '14 days'
+       GROUP BY scraped_at::date ORDER BY scraped_at::date DESC`
+    );
+    const remote = await pool.query(
+      `SELECT COUNT(*) FILTER (WHERE is_remote) as remote,
+              COUNT(*) FILTER (WHERE salary_min IS NOT NULL OR salary_max IS NOT NULL) as with_salary
+       FROM jobs`
+    );
+    const topCompanies = await pool.query(
+      `SELECT company, COUNT(*) as count FROM jobs
+       GROUP BY company ORDER BY count DESC LIMIT 15`
+    );
+    const sources = await pool.query(
+      `SELECT source, COUNT(*) as count FROM jobs
+       WHERE source IS NOT NULL GROUP BY source ORDER BY count DESC`
+    );
+    const salaries = await pool.query(
+      `SELECT category,
+              percentile_cont(0.5) WITHIN GROUP (ORDER BY salary_min) as median_min,
+              percentile_cont(0.5) WITHIN GROUP (ORDER BY salary_max) as median_max,
+              COUNT(*) as sample
+       FROM jobs
+       WHERE salary_min IS NOT NULL AND salary_currency = 'USD' AND category IS NOT NULL
+       GROUP BY category HAVING COUNT(*) >= 100 ORDER BY median_min DESC`
+    );
+
+    return {
+      addedByDay: daily.rows as { day: string; count: number }[],
+      remoteJobs: Number(remote.rows[0].remote),
+      withSalary: Number(remote.rows[0].with_salary),
+      topCompanies: topCompanies.rows as { company: string; count: number }[],
+      sources: sources.rows as { source: string; count: number }[],
+      salaryByCategory: salaries.rows as {
+        category: string;
+        median_min: number;
+        median_max: number;
+        sample: number;
+      }[],
     };
   });
 }
@@ -306,7 +356,7 @@ export function logSearch(params: SearchParams, resultsCount: number, visitorId?
 
 export async function getAnalytics(days: number = 30) {
   // Consolidated into 4 queries using CTEs instead of 17 parallel queries
-  const [pvStats, pvDaily, searchStats, searchRecent] = await Promise.all([
+  const [pvStats, pvDaily, searchStats, searchRecent, zeroResults, viewedContent] = await Promise.all([
     // Page view aggregates in one query
     pool.query(
       `WITH filtered AS (
@@ -316,6 +366,7 @@ export async function getAnalytics(days: number = 30) {
         (SELECT COUNT(*) FROM filtered) as total_views,
         (SELECT COUNT(DISTINCT visitor_id) FROM filtered) as unique_visitors,
         (SELECT COUNT(*) FROM (SELECT visitor_id FROM filtered GROUP BY visitor_id HAVING COUNT(*) > 1) r) as returning_visitors,
+        (SELECT COUNT(*) FROM (SELECT visitor_id FROM filtered GROUP BY visitor_id HAVING COUNT(*) = 1) b) as bounced,
         (SELECT ROUND(AVG(c)::numeric, 1) FROM (SELECT COUNT(*) as c FROM filtered GROUP BY visitor_id) a) as avg_pages`,
       [`${days} days`]
     ),
@@ -345,8 +396,9 @@ export async function getAnalytics(days: number = 30) {
         FROM filtered WHERE city IS NOT NULL GROUP BY city, country ORDER BY count DESC LIMIT 20
       ),
       referrers AS (
-        SELECT referrer, COUNT(*) as count
-        FROM filtered WHERE referrer IS NOT NULL AND referrer != '' GROUP BY referrer ORDER BY count DESC LIMIT 15
+        SELECT substring(referrer from '^(?:https?://)?(?:www\\.)?([^/]+)') as referrer, COUNT(*) as count
+        FROM filtered WHERE referrer IS NOT NULL AND referrer != ''
+        GROUP BY 1 ORDER BY count DESC LIMIT 15
       ),
       hourly AS (
         SELECT TO_CHAR(created_at, 'HH24') as hour, COUNT(*) as count
@@ -401,16 +453,64 @@ export async function getAnalytics(days: number = 30) {
       `SELECT query, source_filter, location_filter, company_filter, results_count, created_at::text
        FROM search_logs ORDER BY created_at DESC LIMIT 50`
     ),
+    // Zero-result searches — demand the site can't serve
+    pool.query(
+      `SELECT query, COUNT(*) as count
+       FROM search_logs
+       WHERE created_at >= NOW() - $1::interval AND results_count = 0 AND query IS NOT NULL
+       GROUP BY query ORDER BY count DESC LIMIT 20`,
+      [`${days} days`]
+    ),
+    // Most viewed jobs and companies (from /jobs/:id page views joined to jobs)
+    pool.query(
+      `WITH job_views AS (
+        SELECT substring(path from '[0-9]+')::int as job_id, COUNT(*) as views
+        FROM page_views
+        WHERE created_at >= NOW() - $1::interval AND path ~ '^/jobs/[0-9]+$'
+        GROUP BY 1
+      )
+      SELECT json_build_object(
+        'jobs', (
+          SELECT COALESCE(json_agg(t), '[]') FROM (
+            SELECT v.job_id, v.views, j.title, j.company
+            FROM job_views v LEFT JOIN jobs j ON j.id = v.job_id
+            ORDER BY v.views DESC LIMIT 15
+          ) t
+        ),
+        'companies', (
+          SELECT COALESCE(json_agg(t), '[]') FROM (
+            SELECT j.company, SUM(v.views)::int as views, COUNT(*)::int as jobs_viewed
+            FROM job_views v JOIN jobs j ON j.id = v.job_id
+            GROUP BY j.company ORDER BY SUM(v.views) DESC LIMIT 15
+          ) t
+        )
+      ) as data`,
+      [`${days} days`]
+    ),
   ]);
 
   const pv = pvDaily.rows[0].data;
   const sr = searchStats.rows[0].data;
+  const viewed = viewedContent.rows[0].data;
 
   return {
     totalViews: Number(pvStats.rows[0].total_views),
     uniqueVisitors: Number(pvStats.rows[0].unique_visitors),
     returningVisitors: Number(pvStats.rows[0].returning_visitors),
+    bouncedVisitors: Number(pvStats.rows[0].bounced),
     avgPagesPerVisitor: Number(pvStats.rows[0].avg_pages || 0),
+    zeroResultSearches: zeroResults.rows as { query: string; count: number }[],
+    topViewedJobs: viewed.jobs as {
+      job_id: number;
+      views: number;
+      title: string | null;
+      company: string | null;
+    }[],
+    topViewedCompanies: viewed.companies as {
+      company: string;
+      views: number;
+      jobs_viewed: number;
+    }[],
     viewsByDay: pv.by_day as { day: string; count: number }[],
     uniquesByDay: pv.by_day as { day: string; count: number; uniques: number }[],
     topPages: pv.top_pages as { path: string; views: number; unique_visitors: number }[],

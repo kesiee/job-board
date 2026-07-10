@@ -8,7 +8,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: baseUrl, changeFrequency: "daily", priority: 1 },
     { url: `${baseUrl}/jobs`, changeFrequency: "hourly", priority: 0.9 },
     { url: `${baseUrl}/companies`, changeFrequency: "daily", priority: 0.7 },
-    { url: `${baseUrl}/stats`, changeFrequency: "daily", priority: 0.5 },
+    { url: `${baseUrl}/insights`, changeFrequency: "daily", priority: 0.5 },
   ];
 
   const companies = await pool.query(
