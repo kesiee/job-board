@@ -72,6 +72,21 @@ export default async function AdminPage({
         <Card label="Total Searches" value={totalSearches} />
       </div>
 
+      {/* Apply funnel */}
+      <div className="mt-4 grid gap-4 grid-cols-3">
+        <Card label="Job Detail Views" value={data.jobViews} />
+        <Card label="Apply Clicks" value={data.applyClicks} highlight />
+        <Card
+          label="View → Apply Rate"
+          value={
+            data.jobViews > 0
+              ? Math.round((data.applyClicks / data.jobViews) * 100)
+              : 0
+          }
+          suffix="%"
+        />
+      </div>
+
       {/* Traffic chart: views + uniques by day */}
       <Section title="Traffic">
         <div className="space-y-1">
@@ -326,6 +341,45 @@ export default async function AdminPage({
           )}
         </Section>
       </div>
+
+      {/* Apply clicks by job */}
+      <Section title="Most Applied Jobs">
+        {data.topAppliedJobs.length === 0 ? (
+          <Empty label="No apply clicks yet" />
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-left text-gray-500">
+                <th className="pb-2 font-medium">Job</th>
+                <th className="pb-2 font-medium text-right">Apply Clicks</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.topAppliedJobs.map((j) => (
+                <tr key={j.job_id} className="border-b border-gray-50">
+                  <td className="py-1.5 text-gray-700">
+                    {j.title ? (
+                      <a
+                        href={`/jobs/${j.job_id}`}
+                        className="hover:text-blue-600"
+                        target="_blank"
+                      >
+                        {j.title}
+                        <span className="ml-1 text-xs text-gray-400">
+                          {j.company}
+                        </span>
+                      </a>
+                    ) : (
+                      <span className="text-gray-400">#{j.job_id} (removed)</span>
+                    )}
+                  </td>
+                  <td className="py-1.5 text-right font-medium">{j.clicks}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Section>
 
       {/* Unmet demand */}
       <Section title="Zero-Result Searches (unmet demand)">

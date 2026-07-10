@@ -1,11 +1,14 @@
 import Link from "next/link";
-import { getStats } from "@/lib/queries";
+import { getStats, getCategoryStats } from "@/lib/queries";
 import { formatNumber } from "@/lib/utils";
 
 export const revalidate = 300;
 
 export default async function Home() {
   const stats = await getStats();
+  const categories = (await getCategoryStats())
+    .filter((c) => c.category !== "Other")
+    .slice(0, 8);
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-16">
@@ -59,6 +62,31 @@ export default async function Home() {
             +{formatNumber(stats.yesterdayJobs)}
           </p>
           <p className="mt-1 text-sm text-gray-500">Added Yesterday</p>
+        </div>
+      </div>
+
+      <div className="mt-12">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+            Popular Categories
+          </h2>
+          <Link href="/insights" className="text-sm font-medium text-blue-600 hover:text-blue-700">
+            All insights &rarr;
+          </Link>
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {categories.map((cat) => (
+            <Link
+              key={cat.category}
+              href={`/jobs?category=${encodeURIComponent(cat.category)}`}
+              className="rounded-lg border border-gray-200 bg-white px-4 py-3 text-center shadow-sm transition-shadow hover:shadow-md"
+            >
+              <p className="text-sm font-medium text-gray-900 truncate">{cat.category}</p>
+              <p className="mt-0.5 text-xs text-gray-500">
+                {formatNumber(Number(cat.count))} jobs
+              </p>
+            </Link>
+          ))}
         </div>
       </div>
 

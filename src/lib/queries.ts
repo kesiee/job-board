@@ -23,6 +23,7 @@ export interface Job {
   workplace_type: string | null;
   location_display: string | null;
   posted_at: string | null;
+  category: string | null;
 }
 
 export interface SearchParams {
@@ -181,11 +182,29 @@ export async function getJob(id: number) {
             date_posted, scraped_at, last_seen_at, is_remote,
             salary_min, salary_max, salary_currency,
             seniority, employment_type, department, workplace_type,
-            location_display, posted_at
+            location_display, posted_at, category
      FROM jobs WHERE id = $1`,
     [id]
   );
   return (result.rows[0] as Job) || null;
+}
+
+export async function getRelatedJobs(job: Job) {
+  const result = await pool.query(
+    `(SELECT ${CARD_COLUMNS} FROM jobs
+      WHERE company = $1 AND id != $2
+      ORDER BY scraped_at DESC LIMIT 5)
+     UNION ALL
+     (SELECT ${CARD_COLUMNS} FROM jobs
+      WHERE category = $3 AND category IS NOT NULL AND company != $1 AND id != $2
+      ORDER BY scraped_at DESC LIMIT 5)`,
+    [job.company, job.id, job.category]
+  );
+  const rows = result.rows as Job[];
+  return {
+    sameCompany: rows.filter((j) => j.company === job.company),
+    sameCategory: rows.filter((j) => j.company !== job.company),
+  };
 }
 
 export function getStats() {
@@ -356,24 +375,29 @@ export function logSearch(params: SearchParams, resultsCount: number, visitorId?
 
 export async function getAnalytics(days: number = 30) {
   // Consolidated into 4 queries using CTEs instead of 17 parallel queries
-  const [pvStats, pvDaily, searchStats, searchRecent, zeroResults, viewedContent] = await Promise.all([
+  const [pvStats, pvDaily, searchStats, searchRecent, zeroResults, viewedContent, appliedJobs] = await Promise.all([
     // Page view aggregates in one query
     pool.query(
       `WITH filtered AS (
-        SELECT * FROM page_views WHERE created_at >= NOW() - $1::interval
+        SELECT * FROM page_views
+        WHERE created_at >= NOW() - $1::interval AND path NOT LIKE '/apply/%'
       )
       SELECT
         (SELECT COUNT(*) FROM filtered) as total_views,
         (SELECT COUNT(DISTINCT visitor_id) FROM filtered) as unique_visitors,
         (SELECT COUNT(*) FROM (SELECT visitor_id FROM filtered GROUP BY visitor_id HAVING COUNT(*) > 1) r) as returning_visitors,
         (SELECT COUNT(*) FROM (SELECT visitor_id FROM filtered GROUP BY visitor_id HAVING COUNT(*) = 1) b) as bounced,
-        (SELECT ROUND(AVG(c)::numeric, 1) FROM (SELECT COUNT(*) as c FROM filtered GROUP BY visitor_id) a) as avg_pages`,
+        (SELECT ROUND(AVG(c)::numeric, 1) FROM (SELECT COUNT(*) as c FROM filtered GROUP BY visitor_id) a) as avg_pages,
+        (SELECT COUNT(*) FROM filtered WHERE path ~ '^/jobs/[0-9]+$') as job_views,
+        (SELECT COUNT(*) FROM page_views
+         WHERE created_at >= NOW() - $1::interval AND path LIKE '/apply/%') as apply_clicks`,
       [`${days} days`]
     ),
     // Daily breakdown + top pages + devices + countries + cities + referrers + hourly — one big query
     pool.query(
       `WITH filtered AS (
-        SELECT * FROM page_views WHERE created_at >= NOW() - $1::interval
+        SELECT * FROM page_views
+        WHERE created_at >= NOW() - $1::interval AND path NOT LIKE '/apply/%'
       ),
       by_day AS (
         SELECT created_at::date::text as day, COUNT(*) as count, COUNT(DISTINCT visitor_id) as uniques
@@ -487,6 +511,19 @@ export async function getAnalytics(days: number = 30) {
       ) as data`,
       [`${days} days`]
     ),
+    // Top applied jobs (apply clicks logged as /apply/:id page_views rows)
+    pool.query(
+      `WITH clicks AS (
+        SELECT substring(path from '[0-9]+')::int as job_id, COUNT(*) as clicks
+        FROM page_views
+        WHERE created_at >= NOW() - $1::interval AND path ~ '^/apply/[0-9]+$'
+        GROUP BY 1
+      )
+      SELECT c.job_id, c.clicks, j.title, j.company
+      FROM clicks c LEFT JOIN jobs j ON j.id = c.job_id
+      ORDER BY c.clicks DESC LIMIT 15`,
+      [`${days} days`]
+    ),
   ]);
 
   const pv = pvDaily.rows[0].data;
@@ -499,6 +536,14 @@ export async function getAnalytics(days: number = 30) {
     returningVisitors: Number(pvStats.rows[0].returning_visitors),
     bouncedVisitors: Number(pvStats.rows[0].bounced),
     avgPagesPerVisitor: Number(pvStats.rows[0].avg_pages || 0),
+    jobViews: Number(pvStats.rows[0].job_views),
+    applyClicks: Number(pvStats.rows[0].apply_clicks),
+    topAppliedJobs: appliedJobs.rows as {
+      job_id: number;
+      clicks: number;
+      title: string | null;
+      company: string | null;
+    }[],
     zeroResultSearches: zeroResults.rows as { query: string; count: number }[],
     topViewedJobs: viewed.jobs as {
       job_id: number;
