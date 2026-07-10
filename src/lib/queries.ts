@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { pool } from "./db";
 import { cached } from "./cache";
 
@@ -179,7 +180,8 @@ export async function searchJobs(params: SearchParams) {
   return result;
 }
 
-export async function getJob(id: number) {
+// React cache: generateMetadata and the page both call this per request
+export const getJob = cache(async (id: number) => {
   if (!Number.isInteger(id)) return null;
   const result = await pool.query(
     `SELECT id, title, company, url, description, location, source, ats_slug,
@@ -191,7 +193,7 @@ export async function getJob(id: number) {
     [id]
   );
   return (result.rows[0] as Job) || null;
-}
+});
 
 export async function getRelatedJobs(job: Job) {
   const result = await pool.query(

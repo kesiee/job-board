@@ -14,7 +14,9 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { id } = await params;
   const job = await getJob(parseInt(id));
-  if (!job) return { title: "Job Not Found" };
+  // 404 here, not just in the page: with loading.tsx the page streams and a
+  // notFound() thrown mid-stream can no longer change the 200 status code
+  if (!job) notFound();
   return {
     title: `${job.title} at ${job.company}`,
     description: `${job.title} at ${job.company}${job.location ? ` in ${job.location}` : ""}. Apply now on JobHunt.`,
