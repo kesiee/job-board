@@ -186,7 +186,7 @@ export default async function AdminPage({
         {data.hourly.length === 0 ? (
           <Empty />
         ) : (
-          <div className="flex items-end gap-1 h-32">
+          <div className="flex items-end gap-1">
             {Array.from({ length: 24 }, (_, h) => {
               const hour = h.toString().padStart(2, "0");
               const entry = data.hourly.find((e) => e.hour === hour);
@@ -194,11 +194,14 @@ export default async function AdminPage({
               const max = Math.max(...data.hourly.map((e) => e.count), 1);
               return (
                 <div key={h} className="flex-1 flex flex-col items-center gap-1">
-                  <div
-                    className="w-full rounded-t bg-blue-400 min-h-[2px]"
-                    style={{ height: `${(count / max) * 100}%` }}
-                    title={`${hour}:00 — ${count} views`}
-                  />
+                  {/* fixed-height wrapper: percentage bar heights need a sized parent */}
+                  <div className="flex h-32 w-full items-end">
+                    <div
+                      className="w-full rounded-t bg-blue-400 min-h-[2px]"
+                      style={{ height: `${(count / max) * 100}%` }}
+                      title={`${hour}:00 — ${count} views`}
+                    />
+                  </div>
                   <span className="text-[10px] text-gray-400">{h % 6 === 0 ? `${hour}` : ""}</span>
                 </div>
               );

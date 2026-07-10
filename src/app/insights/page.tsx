@@ -68,7 +68,7 @@ export default async function InsightsPage() {
 
       {/* 14-day hiring trend */}
       <Section title="Jobs Added — Last 14 Days">
-        <div className="flex items-end gap-1.5 h-64 sm:gap-2">
+        <div className="flex items-end gap-1.5 sm:gap-2">
           {trendAsc.map((d) => {
             // sqrt scale: rescrape days spike 20x and flatten normal days on a linear scale
             const pct = Math.max(
@@ -80,11 +80,14 @@ export default async function InsightsPage() {
                 <span className="text-[10px] font-semibold text-gray-600 sm:text-xs">
                   {formatNumber(Number(d.count))}
                 </span>
-                <div
-                  className="w-full rounded-t-md bg-gradient-to-t from-green-500 to-emerald-400 transition-colors hover:from-green-600 hover:to-emerald-500"
-                  style={{ height: `${pct}%` }}
-                  title={`${d.day}: ${Number(d.count).toLocaleString()} jobs`}
-                />
+                {/* fixed-height wrapper: percentage bar heights need a sized parent */}
+                <div className="flex h-48 w-full items-end">
+                  <div
+                    className="w-full rounded-t-md bg-gradient-to-t from-green-500 to-emerald-400 transition-colors hover:from-green-600 hover:to-emerald-500"
+                    style={{ height: `${pct}%` }}
+                    title={`${d.day}: ${Number(d.count).toLocaleString()} jobs`}
+                  />
+                </div>
                 <span className="text-[10px] text-gray-400">{d.day.slice(5)}</span>
               </div>
             );
