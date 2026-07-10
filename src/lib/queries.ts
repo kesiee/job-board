@@ -44,7 +44,7 @@ const PAGE_SIZE = 30;
 // Exact COUNT(*) over matches costs 100ms-6s on big result sets; nobody
 // pages past a few hundred results. Cap the count scan — the UI can show
 // "5,000+" when total hits the cap.
-const COUNT_CAP = 5000;
+export const COUNT_CAP = 5000;
 
 function cappedCount(where: string, args: (string | number | boolean)[]) {
   return pool.query(

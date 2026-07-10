@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { searchJobs, getCountries } from "@/lib/queries";
+import { searchJobs, getCountries, COUNT_CAP } from "@/lib/queries";
 import { SearchFilters } from "@/components/search-filters";
 import { JobCard } from "@/components/job-card";
 import { Pagination } from "@/components/pagination";
@@ -48,7 +48,7 @@ export default async function JobsPage({
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Jobs</h1>
         <p className="text-sm text-gray-500">
-          {formatNumber(total)} results
+          {total >= COUNT_CAP ? `${COUNT_CAP.toLocaleString()}+` : formatNumber(total)} results
           {category && <> in {category}</>}
           {q && <> for &quot;{q}&quot;</>}
           {remote && <> (remote)</>}
