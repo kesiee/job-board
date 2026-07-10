@@ -11,6 +11,21 @@ export const metadata: Metadata = {
 
 export const revalidate = 300;
 
+const CATEGORY_STYLES = [
+  "border-blue-100 bg-blue-50 text-blue-900",
+  "border-emerald-100 bg-emerald-50 text-emerald-900",
+  "border-violet-100 bg-violet-50 text-violet-900",
+  "border-amber-100 bg-amber-50 text-amber-900",
+  "border-rose-100 bg-rose-50 text-rose-900",
+  "border-cyan-100 bg-cyan-50 text-cyan-900",
+  "border-indigo-100 bg-indigo-50 text-indigo-900",
+  "border-teal-100 bg-teal-50 text-teal-900",
+  "border-orange-100 bg-orange-50 text-orange-900",
+  "border-fuchsia-100 bg-fuchsia-50 text-fuchsia-900",
+  "border-lime-100 bg-lime-50 text-lime-900",
+  "border-sky-100 bg-sky-50 text-sky-900",
+];
+
 export default async function InsightsPage() {
   // Sequential to keep concurrent load on the small DB instance low (10s
   // statement_timeout); results are cached so this only costs on revalidate
@@ -19,7 +34,9 @@ export default async function InsightsPage() {
   const insights = await getInsights();
   const countries = await getCountries();
 
-  const maxCategory = categories[0]?.count || 1;
+  const namedCategories = categories.filter((c) => c.category !== "Other");
+  const topCategories = namedCategories.slice(0, 12);
+  const moreCategories = namedCategories.slice(12).filter((c) => Number(c.count) >= 1000);
   const maxDaily = Math.max(...insights.addedByDay.map((d) => Number(d.count)), 1);
   const trendAsc = [...insights.addedByDay].reverse();
   const remotePct = ((insights.remoteJobs / stats.totalJobs) * 100).toFixed(1);
@@ -92,43 +109,43 @@ export default async function InsightsPage() {
       </div>
 
       {/* Categories */}
-      <Section title="Jobs by Category">
-        <div className="space-y-3">
-          {categories.map((cat) => {
-            const pct = Math.round((Number(cat.count) / stats.totalJobs) * 100);
-            const barPct = Math.round((Number(cat.count) / maxCategory) * 100);
-            const inner = (
-              <>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-gray-900">
-                    {cat.category}
-                  </span>
-                  <span className="text-sm text-gray-500">
-                    {formatNumber(Number(cat.count))} ({pct}%)
-                  </span>
-                </div>
-                <div className="mt-2 h-2 w-full rounded-full bg-gray-100">
-                  <div
-                    className="h-2 rounded-full bg-blue-500"
-                    style={{ width: `${barPct}%` }}
-                  />
-                </div>
-              </>
-            );
-            return cat.category !== "Other" ? (
+      <div className="mt-10">
+        <h2 className="mb-3 text-lg font-semibold text-gray-900">
+          Browse by Category
+        </h2>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          {topCategories.map((cat, i) => (
+            <Link
+              key={cat.category}
+              href={`/jobs?category=${encodeURIComponent(cat.category)}`}
+              className={`group rounded-xl border p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${CATEGORY_STYLES[i % CATEGORY_STYLES.length]}`}
+            >
+              <p className="text-2xl font-bold">
+                {formatNumber(Number(cat.count))}
+              </p>
+              <p className="mt-1 text-sm font-medium leading-snug">
+                {cat.category}
+              </p>
+            </Link>
+          ))}
+        </div>
+        {moreCategories.length > 0 && (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {moreCategories.map((cat) => (
               <Link
                 key={cat.category}
                 href={`/jobs?category=${encodeURIComponent(cat.category)}`}
-                className="block rounded-lg p-2 -m-2 hover:bg-gray-50"
+                className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-700 hover:border-gray-300 hover:bg-gray-50"
               >
-                {inner}
+                {cat.category}
+                <span className="text-xs text-gray-400">
+                  {formatNumber(Number(cat.count))}
+                </span>
               </Link>
-            ) : (
-              <div key={cat.category} className="p-2 -m-2">{inner}</div>
-            );
-          })}
-        </div>
-      </Section>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Salary by category */}
       {insights.salaryByCategory.length > 0 && (
