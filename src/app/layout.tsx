@@ -17,6 +17,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://job-board-kesiee.vercel.app"),
   title: {
     default: "JobHunt — Every open role. One search.",
     template: "%s | JobHunt",

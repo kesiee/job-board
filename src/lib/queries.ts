@@ -147,7 +147,11 @@ export async function searchJobs(params: SearchParams) {
       params.sort === "company" ? "company ASC, scraped_at DESC" : "scraped_at DESC";
 
     const [countResult, jobsResult] = await Promise.all([
-      pool.query(`SELECT COUNT(*) as total FROM jobs ${where}`, args),
+      // Unfiltered browse: counting all 1.5M rows per request is the most
+      // expensive query on the page — reuse the cached stats total instead
+      conditions.length === 0
+        ? getStats().then((s) => ({ rows: [{ total: s.totalJobs }] }))
+        : pool.query(`SELECT COUNT(*) as total FROM jobs ${where}`, args),
       pool.query(
         `SELECT ${CARD_COLUMNS}
          FROM jobs ${where}

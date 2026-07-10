@@ -1,9 +1,10 @@
 import { Suspense } from "react";
+import Link from "next/link";
 import { searchJobs, getCountries } from "@/lib/queries";
 import { SearchFilters } from "@/components/search-filters";
 import { JobCard } from "@/components/job-card";
 import { Pagination } from "@/components/pagination";
-import { formatNumber } from "@/lib/utils";
+import { formatNumber, countryName } from "@/lib/utils";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -58,6 +59,8 @@ export default async function JobsPage({
         <SearchFilters countries={countries} />
       </Suspense>
 
+      <ActiveFilters currentParams={currentParams} />
+
       <div className="mt-6">
         {jobs.length === 0 ? (
           <p className="py-12 text-center text-gray-500">
@@ -74,6 +77,48 @@ export default async function JobsPage({
         baseUrl="/jobs"
         searchParams={currentParams}
       />
+    </div>
+  );
+}
+
+const FILTER_LABELS: Record<string, (v: string) => string> = {
+  q: (v) => `"${v}"`,
+  category: (v) => v,
+  source: (v) => v,
+  location: (v) => `Location: ${v}`,
+  company: (v) => v,
+  country: (v) => countryName(v),
+  remote: () => "Remote",
+};
+
+function ActiveFilters({ currentParams }: { currentParams: Record<string, string> }) {
+  const active = Object.entries(currentParams).filter(([k]) => k !== "sort");
+  if (active.length === 0) return null;
+
+  const urlWithout = (key: string) => {
+    const rest = Object.entries(currentParams).filter(([k]) => k !== key);
+    const qs = new URLSearchParams(rest).toString();
+    return qs ? `/jobs?${qs}` : "/jobs";
+  };
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2">
+      {active.map(([key, value]) => (
+        <Link
+          key={key}
+          href={urlWithout(key)}
+          className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-sm text-blue-800 hover:bg-blue-100"
+          title="Remove filter"
+        >
+          {(FILTER_LABELS[key] || ((v: string) => v))(value)}
+          <span aria-hidden className="text-blue-400">×</span>
+        </Link>
+      ))}
+      {active.length > 1 && (
+        <Link href="/jobs" className="text-sm text-gray-500 hover:text-gray-700">
+          Clear all
+        </Link>
+      )}
     </div>
   );
 }
