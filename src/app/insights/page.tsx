@@ -123,9 +123,9 @@ export default async function InsightsPage() {
                 <span className="text-[10px] font-semibold text-gray-600 sm:text-xs">
                   {formatNumber(w.count)}
                 </span>
-                <div className="flex h-48 w-full items-end">
+                <div className="flex h-48 w-full items-end justify-center">
                   <div
-                    className="w-full rounded-t-md bg-gradient-to-t from-indigo-500 to-violet-400 transition-colors hover:from-indigo-600 hover:to-violet-500"
+                    className="w-3 rounded-t-md bg-gradient-to-t from-indigo-500 to-violet-400 transition-colors hover:from-indigo-600 hover:to-violet-500 sm:w-4"
                     style={{ height: `${pct}%` }}
                     title={`${w.label}: ${w.count.toLocaleString()} avg/day`}
                   />
