@@ -269,6 +269,16 @@ export function getInsights() {
       `SELECT source, COUNT(*) as count FROM jobs
        WHERE source IS NOT NULL GROUP BY source ORDER BY count DESC`
     );
+    // Avg jobs posted per weekday over 90 days — which days new postings peak.
+    // Uses posted_at (real post date), not scraped_at which spikes on rescrapes.
+    const weekday = await pool.query(
+      `WITH d AS (
+        SELECT posted_at::date AS dt, EXTRACT(DOW FROM posted_at)::int AS dow, COUNT(*) AS c
+        FROM jobs WHERE posted_at >= NOW() - INTERVAL '90 days'
+        GROUP BY 1, 2
+      )
+      SELECT dow, ROUND(AVG(c))::int AS avg_count FROM d GROUP BY dow ORDER BY dow`
+    );
     const salaries = await pool.query(
       `SELECT category,
               percentile_cont(0.5) WITHIN GROUP (ORDER BY salary_min) as median_min,
@@ -281,6 +291,7 @@ export function getInsights() {
 
     return {
       addedByDay: daily.rows as { day: string; count: number }[],
+      postedByWeekday: weekday.rows as { dow: number; avg_count: number }[],
       remoteJobs: Number(remote.rows[0].remote),
       withSalary: Number(remote.rows[0].with_salary),
       topCompanies: topCompanies.rows as { company: string; count: number }[],

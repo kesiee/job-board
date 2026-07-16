@@ -39,6 +39,24 @@ export default async function InsightsPage() {
   const moreCategories = namedCategories.slice(12).filter((c) => Number(c.count) >= 1000);
   const maxDaily = Math.max(...insights.addedByDay.map((d) => Number(d.count)), 1);
   const trendAsc = [...insights.addedByDay].reverse();
+  // Reorder DB rows (0=Sun..6=Sat) into Mon–Sun for the weekday chart
+  const WEEKDAYS = [
+    { dow: 1, label: "Mon" },
+    { dow: 2, label: "Tue" },
+    { dow: 3, label: "Wed" },
+    { dow: 4, label: "Thu" },
+    { dow: 5, label: "Fri" },
+    { dow: 6, label: "Sat" },
+    { dow: 0, label: "Sun" },
+  ];
+  const weekdayAvg = WEEKDAYS.map((w) => ({
+    label: w.label,
+    count:
+      Number(
+        insights.postedByWeekday.find((r) => Number(r.dow) === w.dow)?.avg_count
+      ) || 0,
+  }));
+  const maxWeekday = Math.max(...weekdayAvg.map((w) => w.count), 1);
   const remotePct = ((insights.remoteJobs / stats.totalJobs) * 100).toFixed(1);
   const topCountries = countries.slice(0, 12);
   const maxCountry = Number(topCountries[0]?.count) || 1;
@@ -89,6 +107,30 @@ export default async function InsightsPage() {
                   />
                 </div>
                 <span className="text-[10px] text-gray-400">{d.day.slice(5)}</span>
+              </div>
+            );
+          })}
+        </div>
+      </Section>
+
+      {/* Average jobs posted by weekday */}
+      <Section title="Avg Jobs Posted by Weekday (last 90 days)">
+        <div className="flex items-end gap-1.5 sm:gap-2">
+          {weekdayAvg.map((w) => {
+            const pct = Math.max((w.count / maxWeekday) * 100, 3);
+            return (
+              <div key={w.label} className="flex-1 flex flex-col items-center gap-1 min-w-0">
+                <span className="text-[10px] font-semibold text-gray-600 sm:text-xs">
+                  {formatNumber(w.count)}
+                </span>
+                <div className="flex h-48 w-full items-end">
+                  <div
+                    className="w-full rounded-t-md bg-gradient-to-t from-indigo-500 to-violet-400 transition-colors hover:from-indigo-600 hover:to-violet-500"
+                    style={{ height: `${pct}%` }}
+                    title={`${w.label}: ${w.count.toLocaleString()} avg/day`}
+                  />
+                </div>
+                <span className="text-[10px] text-gray-400">{w.label}</span>
               </div>
             );
           })}
